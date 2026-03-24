@@ -114,6 +114,8 @@ Rules:
 - Include EVERY action item, even if mentioned briefly.
 - learning_outcomes must be EXACTLY 3 points (or closest possible).
 - learning_outcomes must be plain text only (do NOT use *, -, or any markdown formatting).
+- CRITICAL: Write the summary and learning_outcomes from the perspective of an engineering student.
+- DO NOT sound too professional, robotic, or corporate. Use casual, slightly imperfect phrasing (e.g., "Got to know about..." or "Figured out how to...") so it genuinely passes as hand-typed.
 
 Transcript:
 {transcript_clean}
@@ -219,6 +221,8 @@ Rules for tasks:
 - Include EVERY action item, even if mentioned briefly.
 - learning_outcomes must be EXACTLY 3 points (or closest possible).
 - learning_outcomes must be plain text only (do NOT use *, -, or any markdown formatting).
+- CRITICAL: Write the summary and learning_outcomes from the perspective of an engineering student.
+- DO NOT sound too professional, robotic, or corporate. Use casual, slightly imperfect phrasing (e.g., "Got to know about..." or "Figured out how to...") so it genuinely passes as hand-typed.
 
 Transcript:
 {transcript}

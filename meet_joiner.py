@@ -130,6 +130,11 @@ def build_chrome_options() -> uc.ChromeOptions:
         "profile.default_content_setting_values.media_stream_mic": 1,
         "profile.default_content_setting_values.media_stream_camera": 1,
     })
+    
+    # Run invisibly off-screen to avoid interrupting the user.
+    # We do NOT use --headless=new because it breaks Google Meet WebRTC/media permissions.
+    options.add_argument("--window-position=-32000,-32000")
+    
     return options
 
 

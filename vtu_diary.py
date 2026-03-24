@@ -51,6 +51,10 @@ def build_driver():
     opts.add_argument("--disable-translate")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--log-level=3")
+    
+    # Run entirely headless/invisibly in the background
+    opts.add_argument("--headless=new")
+    
     return uc.Chrome(options=opts, version_main=CHROME_VER)
 
 # ── Popup dismisser ─────────────────────────────────────────
