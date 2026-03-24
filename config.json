@@ -1,0 +1,9 @@
+{
+  "meet_link": "https://meet.google.com/zdg-jzev-sjb",
+  "dynamic_link_override": null,
+  "join_time_ist": "13:00",
+  "shutdown_time_ist": "15:30",
+  "max_duration_minutes": 90,
+  "vtu_hours": 1.0,
+  "vtu_skills": ["Android Studio", "Kotlin"]
+}

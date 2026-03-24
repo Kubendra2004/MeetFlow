@@ -1,0 +1,7 @@
+chrome_profile/
+output*.txt
+__pycache__/
+*.pyc
+.env
+meetings_db.json
+chrome_profile_vtu/
