@@ -538,9 +538,9 @@ def save_report(meet_link: str, join_time: datetime.datetime,
     hours, mins = divmod(total_mins, 60)
     dur_str    = f"{hours}h {mins}m" if hours else f"{mins} min"
 
-    summary       = ai_results.get("summary", "No summary available.")
-    tasks         = ai_results.get("tasks", [])
-    key_decisions = ai_results.get("key_decisions", [])
+    summary           = ai_results.get("summary", "No summary available.")
+    tasks             = ai_results.get("tasks", [])
+    learning_outcomes = ai_results.get("learning_outcomes", [])
     transcript    = ai_results.get("transcript", "")
 
     lines = [
@@ -560,10 +560,12 @@ def save_report(meet_link: str, join_time: datetime.datetime,
         "",
     ]
 
-    if key_decisions:
-        lines += ["KEY DECISIONS", "-" * 60]
-        for d in key_decisions:
-            lines.append(f"  * {d}")
+    if learning_outcomes:
+        lines += ["LEARNING OUTCOMES", "-" * 60]
+        for idx, outcome in enumerate(learning_outcomes, 1):
+            # Clean up any residual markdown the AI might have accidentally added
+            clean_outcome = outcome.lstrip('*-• ').strip()
+            lines.append(f"  {idx}. {clean_outcome}")
         lines.append("")
 
     if tasks:
@@ -704,9 +706,16 @@ def run_scheduler():
                 result2 = join_meet(link2)
                 print(f"[Scheduler] Rejoin result: {result2}")
 
-            # Schedule shutdown only if meeting genuinely ended (NOT on join error)
+            # Execute VTU diary & Schedule shutdown only if meeting genuinely ended
             final_result = result2 if result2 is not None else result
             if final_result in ("host_ended", "left"):
+                print(f"[Scheduler] Meeting ended ({final_result}). Running VTU Diary Automation...")
+                try:
+                    import subprocess
+                    subprocess.run(["python", "vtu_diary.py"], check=True)
+                except Exception as e:
+                    print(f"[Scheduler] ❌ Failed to run VTU diary: {e}")
+                
                 _schedule_shutdown()
 
         # ── Adaptive sleep & countdown display ────────────────
@@ -751,5 +760,13 @@ if __name__ == "__main__":
             sys.exit(1)
         res = join_meet(link)
         print(f"[IMMEDIATE] Done. Result: {res}")
+        
+        if res in ("host_ended", "left"):
+            print(f"[IMMEDIATE] Meeting ended. Running VTU Diary Automation...")
+            try:
+                import subprocess
+                subprocess.run(["python", "vtu_diary.py"], check=True)
+            except Exception as e:
+                print(f"[IMMEDIATE] ❌ Failed to run VTU diary: {e}")
     else:
         run_scheduler()

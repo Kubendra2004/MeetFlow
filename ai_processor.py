@@ -29,10 +29,10 @@ except ImportError:
     print("[AI] ⚠️  groq package not installed. Run: pip install groq")
 
 _EMPTY_RESULT = {
-    "transcript":    "",
-    "summary":       "AI processing not available.",
-    "tasks":         [],
-    "key_decisions": []
+    "transcript":        "",
+    "summary":           "AI processing not available.",
+    "tasks":             [],
+    "learning_outcomes": []
 }
 
 TRANSCRIPTION_MODEL = "whisper-large-v3"
@@ -62,7 +62,11 @@ Return ONLY valid JSON:
 {{
   "summary": "generic daily summary here",
   "tasks": [],
-  "key_decisions": ["Discussed project progression"]
+  "learning_outcomes": [
+    "Learned to set up Android Studio environment",
+    "Understood exactly how to create prototype blueprints",
+    "Explored basic Kotlin syntax and structure"
+  ]
 }}
 """
         transcript_clean = ""
@@ -96,7 +100,11 @@ Return ONLY valid JSON (no markdown, no extra text):
       "has_deadline": true
     }}
   ],
-  "key_decisions": ["decision 1", "decision 2"]
+  "learning_outcomes": [
+    "First explicit learning point from the meeting",
+    "Second explicit learning point from the meeting",
+    "Third explicit learning point from the meeting"
+  ]
 }}
 
 Rules:
@@ -104,6 +112,8 @@ Rules:
   OR if deadline is today/tomorrow/within 3 days.
 - has_deadline=true whenever any date or time is mentioned near the task.
 - Include EVERY action item, even if mentioned briefly.
+- learning_outcomes must be EXACTLY 3 points (or closest possible).
+- learning_outcomes must be plain text only (do NOT use *, -, or any markdown formatting).
 
 Transcript:
 {transcript_clean}
@@ -137,8 +147,8 @@ Transcript:
         return analysis
 
     except json.JSONDecodeError:
-        print("[AI] ⚠️  Could not parse JSON — returning raw as summary.")
-        return {"transcript": transcript, "summary": raw, "tasks": [], "key_decisions": []}
+        print("[AI] ⚠️  Could not parse JSON — returning raw text as summary.")
+        return {"transcript": transcript, "summary": raw, "tasks": [], "learning_outcomes": []}
     except Exception as e:
         print(f"[AI] ❌ Analysis error: {e}")
         return {**_EMPTY_RESULT, "transcript": transcript, "summary": f"Analysis error: {e}"}
@@ -195,7 +205,11 @@ Return ONLY valid JSON (no markdown, no extra text):
       "has_deadline": true
     }}
   ],
-  "key_decisions": ["decision 1", "decision 2"]
+  "learning_outcomes": [
+    "First explicit learning point from the meeting",
+    "Second explicit learning point from the meeting",
+    "Third explicit learning point from the meeting"
+  ]
 }}
 
 Rules for tasks:
@@ -203,6 +217,8 @@ Rules for tasks:
   OR if the deadline is today/tomorrow/within 3 days.
 - has_deadline=true whenever any date or time is mentioned near the task.
 - Include EVERY action item, even if mentioned briefly.
+- learning_outcomes must be EXACTLY 3 points (or closest possible).
+- learning_outcomes must be plain text only (do NOT use *, -, or any markdown formatting).
 
 Transcript:
 {transcript}
@@ -218,10 +234,10 @@ Transcript:
     except Exception as e:
         print(f"[AI] ❌ Analysis failed: {e}")
         return {
-            "transcript":    transcript,
-            "summary":       f"Analysis error: {e}",
-            "tasks":         [],
-            "key_decisions": []
+            "transcript":        transcript,
+            "summary":           f"Analysis error: {e}",
+            "tasks":             [],
+            "learning_outcomes": []
         }
 
     # ── Parse JSON ────────────────────────────────────────
@@ -248,8 +264,8 @@ Transcript:
     except json.JSONDecodeError:
         print("[AI] ⚠️  Could not parse JSON — returning raw text as summary.")
         return {
-            "transcript":    transcript,
-            "summary":       raw,
-            "tasks":         [],
-            "key_decisions": []
+            "transcript":        transcript,
+            "summary":           raw,
+            "tasks":             [],
+            "learning_outcomes": []
         }

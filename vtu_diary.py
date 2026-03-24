@@ -6,6 +6,7 @@ required fields using today's AI meeting report.
 
 Usage:
     python vtu_diary.py          # login + auto-fill today's diary
+    python vtu_diary.py --test   # dry-run: fills form but does NOT click submit
 
 Credentials in .env:
     VTU_USERNAME="yourname@gmail.com"
@@ -129,8 +130,17 @@ def login(driver) -> bool:
 # ── Load meeting report ─────────────────────────────────────
 def load_todays_report() -> dict:
     """Read the most recent report from reports/ and parse it."""
-    today = datetime.date.today().strftime("%Y-%m-%d")
-    files = sorted(glob.glob(f"reports/{today}_*.txt"), reverse=True)
+    
+    # Check for CLI date override
+    target_date = datetime.date.today().strftime("%Y-%m-%d")
+    if "--date" in sys.argv:
+        try:
+            target_date = sys.argv[sys.argv.index("--date") + 1]
+            print(f"[VTU] Override date detected: {target_date}")
+        except IndexError:
+            pass
+
+    files = sorted(glob.glob(f"reports/{target_date}_*.txt"), reverse=True)
     if not files:
         # Fallback: latest report of any date
         files = sorted(glob.glob("reports/*.txt"), reverse=True)
@@ -146,17 +156,18 @@ def load_todays_report() -> dict:
         m = re.search(pattern, content, re.DOTALL)
         return m.group(1).strip() if m else ""
 
-    summary   = extract("SUMMARY", "KEY DECISIONS|ACTION ITEMS|TRANSCRIPT|=")
-    decisions = extract("KEY DECISIONS", "ACTION ITEMS|TRANSCRIPT|=")
-    tasks     = extract("ACTION ITEMS", "TRANSCRIPT|=")
+    summary   = extract("SUMMARY", "LEARNING OUTCOMES|ACTION ITEMS|TRANSCRIPT|=")
+    learnings = extract("LEARNING OUTCOMES", "ACTION ITEMS|TRANSCRIPT|=")
 
-    # Build learnings from key decisions + tasks
-    learnings_parts = []
-    if decisions:
-        learnings_parts.append("Key Decisions:\n" + decisions)
-    if tasks:
-        learnings_parts.append("Action Items:\n" + tasks)
-    learnings = "\n\n".join(learnings_parts) or "Attended internship meeting and reviewed tasks."
+    if not learnings:
+        # Fallback if old report format (KEY DECISIONS)
+        dec_old = extract("KEY DECISIONS", "ACTION ITEMS|TRANSCRIPT|=")
+        tsk_old = extract("ACTION ITEMS", "TRANSCRIPT|=")
+        parts = []
+        if dec_old: parts.append("Key Decisions:\n" + dec_old)
+        if tsk_old: parts.append("Action Items:\n" + tsk_old)
+        learnings_fallback = "\n\n".join(parts)
+        learnings = learnings_fallback or "Attended internship meeting and reviewed tasks."
 
     # Duration from header
     dur_match = re.search(r"Duration\s*:\s*(.+)", content)
@@ -167,24 +178,24 @@ def load_todays_report() -> dict:
     fname     = os.path.basename(files[0])
     date_str  = fname[:10]   # first 10 chars = YYYY-MM-DD
 
+    # Check for Google Cloud keywords
+    extra_skills = []
+    if re.search(r"\b(google|cloud|gcp)\b", content, re.IGNORECASE):
+        extra_skills.append("Google Cloud")
+
     return {
-        "date":      date_str,
-        "summary":   summary or "Attended internship meeting and discussed project progress.",
-        "learnings": learnings,
-        "hours":     hours,
+        "date":         date_str,
+        "summary":      summary or "Attended internship meeting and discussed project progress.",
+        "learnings":    learnings,
+        "hours":        hours,
+        "extra_skills": extra_skills,
     }
 
 def _parse_hours(dur_str: str) -> float:
-    """Convert '1h 15m' or '45 min' → float hours."""
-    try:
-        h_match = re.search(r"(\d+)h", dur_str)
-        m_match = re.search(r"(\d+)\s*m", dur_str)
-        h = int(h_match.group(1)) if h_match else 0
-        m = int(m_match.group(1)) if m_match else 0
-        total = round(h + m / 60, 2)
-        return total if total > 0 else 1.0
-    except Exception:
-        return 1.0
+    """Return a random float between 8.0 and 12.0 (in 0.5 increments)."""
+    # E.g., 8.0, 8.5, 9.0, ..., 12.0
+    val = random.choice([8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5, 12.0])
+    return val
 
 # ── Date picker helper (calendar UI) ─────────────────────────
 def pick_date(driver, wait, date_str: str):
@@ -371,8 +382,15 @@ def fill_diary(driver):
     report    = load_todays_report()
     # Use the date from the report filename; fall back to today
     diary_date = report.get("date") or datetime.date.today().strftime("%Y-%m-%d")
-    skills    = cfg.get("vtu_skills", ["Android Development", "Generative AI", "Python"])
-    hours     = random.choice([8, 9])
+    skills    = cfg.get("vtu_skills", ["Android Studio", "Kotlin"])
+    
+    # Add dynamic extra skills (like Google Cloud)
+    extra = report.get("extra_skills", [])
+    for s in extra:
+        if s not in skills:
+            skills.append(s)
+
+    hours     = report.get("hours", random.choice([8.0, 8.5, 9.0, 9.5, 10.0, 10.5, 11.0, 11.5, 12.0]))
     summary   = report.get("summary", "Attended internship meeting.")
     learnings = report.get("learnings", "Reviewed project progress and key decisions.")
     print(f"[VTU] Filing diary for date: {diary_date}")
@@ -545,18 +563,22 @@ def fill_diary(driver):
     add_skills(driver, wait, skills)
 
     # ── Submit ───────────────────────────────────────────────
-    print("[VTU] Submitting diary entry...")
-    try:
-        submit = wait.until(EC.element_to_be_clickable(
-            (By.XPATH,
-             "//button[contains(text(),'Submit') or contains(text(),'Save')]")
-        ))
-        submit.click()
-        time.sleep(2)
-        dismiss_popups(driver)
-        print("[VTU] ✅ Diary submitted!")
-    except Exception as e:
-        print(f"[VTU] ⚠️  Submit button: {e}")
+    is_test = "--test" in sys.argv
+    if is_test:
+        print("[VTU] 🧪 TEST MODE: Skipping final 'Submit' click.")
+    else:
+        print("[VTU] Submitting diary entry...")
+        try:
+            submit = wait.until(EC.element_to_be_clickable(
+                (By.XPATH,
+                 "//button[contains(text(),'Submit') or contains(text(),'Save')]")
+            ))
+            submit.click()
+            time.sleep(2)
+            dismiss_popups(driver)
+            print("[VTU] ✅ Diary submitted!")
+        except Exception as e:
+            print(f"[VTU] ⚠️  Submit button: {e}")
 
 # ── Entry point ─────────────────────────────────────────────
 if __name__ == "__main__":

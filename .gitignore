@@ -5,3 +5,4 @@ __pycache__/
 .env
 meetings_db.json
 chrome_profile_vtu/
+reports/
