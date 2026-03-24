@@ -29,7 +29,12 @@ load_dotenv()
 # ── Config ─────────────────────────────────────────────────
 PORTAL_URL  = "https://vtu.internyet.in/sign-in"
 DIARY_URL   = "https://vtu.internyet.in/dashboard/student/student-diary"
-PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_vtu")  # separate from Meet bot
+
+if sys.platform.startswith("linux"):
+    PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_vtu_linux")
+else:
+    PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_vtu")
+
 CHROME_VER  = 145
 TIMEOUT     = 15
 
