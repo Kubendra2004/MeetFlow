@@ -1003,12 +1003,22 @@ def run_scheduler():
 # ── Entry point ───────────────────────────────────────────
 if __name__ == "__main__":
     import sys
+    import ctypes
     immediate = TEST_MODE or "--now" in sys.argv or "-n" in sys.argv
 
     print("=" * 54)
     print("  Google Meet Auto-Joiner v2")
     print("=" * 54)
     print()
+
+    # Prevent Windows from sleeping while the bot is active in the background
+    try:
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+        print("[Bot] 🛡️ Sleep prevention activated.")
+    except Exception as e:
+        print(f"[Bot] ⚠️ Could not set sleep prevention: {e}")
 
     if immediate:
         print("[IMMEDIATE] Joining right now...")
