@@ -16,6 +16,7 @@ import sys
 import datetime
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
@@ -26,16 +27,25 @@ import ai_processor
 CONFIG_FILE = "config.json"
 
 if sys.platform.startswith("linux"):
-    PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_linux")
+    PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile_linux"))
+    # Chromium binary paths on Linux (in order of preference)
+    CHROMIUM_PATHS = [
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/snap/bin/chromium",
+        "/opt/chromium/chromium",
+    ]
+    CHROMIUM_BIN = next((p for p in CHROMIUM_PATHS if os.path.exists(p)), None)
 else:
-    PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile")
+    PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile"))
+    CHROMIUM_BIN = None
 IST_OFFSET  = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 CHROME_VER  = 145   # ← update this if you upgrade Chrome
 
 # Testing mode: set True to join immediately without waiting.
 # Or run:  python meet_joiner.py --now
 TEST_MODE     = False
-JOIN_WINDOW_M = 10   # join if within this many minutes past the scheduled time
+JOIN_WINDOW_M = 30 # join if within this many minutes past the scheduled time
 # ─────────────────────────────────────────────────────────
 
 
@@ -111,11 +121,23 @@ def build_chrome_options() -> uc.ChromeOptions:
     """Build Chrome options with all resource-efficiency flags."""
     options = uc.ChromeOptions()
 
+    # Ensure profile directory exists
+    os.makedirs(PROFILE_DIR, exist_ok=True)
+    print(f"[Chrome] Using profile: {PROFILE_DIR}")
+
     # Allow mic/camera without popup prompts
     options.add_argument("--use-fake-ui-for-media-stream")
     # Use the persistent profile (keeps you signed in)
     options.add_argument(f"--user-data-dir={PROFILE_DIR}")
+    options.add_argument("--profile-directory=Default")
 
+    # Linux keyring integration can fail under automation and make sessions appear signed out.
+    if sys.platform.startswith("linux"):
+        options.add_argument("--password-store=basic")
+
+    # ── Session persistence ──
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    
     # ── Resource efficiency ──
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-translate")
@@ -125,15 +147,16 @@ def build_chrome_options() -> uc.ChromeOptions:
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-logging")
     options.add_argument("--log-level=3")
-    options.add_argument("--disable-default-apps")
     options.add_argument("--js-flags=--max-old-space-size=512")
     # NOTE: --disable-background-networking and --disable-sync removed
     # They break Google session auth and WebRTC (Meet won't load correctly)
+    # NOTE: --disable-default-apps removed - it can clear session cookies
 
     # Grant mic and camera permissions at browser level
     options.add_experimental_option("prefs", {
         "profile.default_content_setting_values.media_stream_mic": 1,
         "profile.default_content_setting_values.media_stream_camera": 1,
+        "profile.default_content_setting_values.notifications": 2,  # Block notifications
     })
     
     # Run invisibly off-screen to avoid interrupting the user.
@@ -259,6 +282,85 @@ def scrape_captions(driver) -> str:
         return ""
 
 
+def _open_chat_panel(driver) -> bool:
+    """
+    Open Google Meet chat panel if it is closed.
+    Safe to call repeatedly; returns True if chat appears open/accessible.
+    """
+    try:
+        chat_toggle_xpaths = [
+            "//button[contains(@aria-label,'Chat')]",
+            "//div[@role='button' and contains(@aria-label,'Chat')]",
+            "//button[contains(@data-tooltip,'Chat')]",
+        ]
+        for xp in chat_toggle_xpaths:
+            btns = driver.find_elements(By.XPATH, xp)
+            for btn in btns:
+                if btn.is_displayed():
+                    try:
+                        label = (btn.get_attribute("aria-label") or "").lower()
+                        # If label suggests panel is closed, click to open.
+                        if "open chat" in label or "chat with everyone" in label or "chat" in label:
+                            btn.click()
+                            time.sleep(0.3)
+                            return True
+                    except Exception:
+                        pass
+        return False
+    except Exception:
+        return False
+
+
+def scrape_chat_messages(driver) -> list[str]:
+    """
+    Scrape visible Google Meet chat lines (including pasted links when present).
+    Returns a best-effort list of message strings.
+    """
+    try:
+        data = driver.execute_script("""
+            const selectors = [
+                '[role="log"] [role="listitem"]',
+                '[aria-live="polite"] [role="listitem"]',
+                '[class*="chat"] [role="listitem"]',
+                '[data-message-text]',
+                '[data-is-chat-message]'
+            ];
+
+            const out = [];
+            const seen = new Set();
+
+            for (const s of selectors) {
+                const nodes = document.querySelectorAll(s);
+                for (const n of nodes) {
+                    const txt = (n.innerText || '').trim();
+                    if (!txt || txt.length < 2) continue;
+
+                    // Pull links explicitly if present in the node.
+                    const anchors = Array.from(n.querySelectorAll('a[href]'));
+                    const hrefs = anchors.map(a => (a.href || '').trim()).filter(Boolean);
+                    const merged = hrefs.length ? `${txt} | links: ${hrefs.join(' , ')}` : txt;
+
+                    if (!seen.has(merged)) {
+                        seen.add(merged);
+                        out.push(merged);
+                    }
+                }
+            }
+
+            return out;
+        """) or []
+
+        clean = []
+        for line in data:
+            line = (line or "").strip()
+            if not line:
+                continue
+            clean.append(line)
+        return clean
+    except Exception:
+        return []
+
+
 def click_join_button(driver) -> bool:
     """
     Try all known XPaths for Ask-to-join / Join-now buttons.
@@ -268,10 +370,18 @@ def click_join_button(driver) -> bool:
     xpaths = [
         "//span[contains(text(), 'Ask to join')]",
         "//span[contains(text(), 'Join now')]",
+        "//span[contains(text(), 'Rejoin')]",
+        "//span[contains(text(), 'Join call')]",
+        "//span[contains(text(), 'Try again')]",
         "//div[@role='button']//span[text()='Ask to join']",
         "//div[@role='button']//span[text()='Join now']",
+        "//div[@role='button']//span[contains(text(),'Rejoin')]",
         "//button[.//span[contains(text(),'Ask to join')]]",
         "//button[.//span[contains(text(),'Join now')]]",
+        "//button[.//span[contains(text(),'Rejoin')]]",
+        "//button[contains(., 'Join now')]",
+        "//button[contains(., 'Rejoin')]",
+        "//button[contains(., 'Try again')]",
     ]
     for xpath in xpaths:
         try:
@@ -280,6 +390,34 @@ def click_join_button(driver) -> bool:
             )
             btn.click()
             return True
+        except Exception:
+            pass
+    return False
+
+
+def click_rejoin_or_retry(driver) -> bool:
+    """
+    Click recovery actions aggressively when Meet shows transient error pages.
+    Returns True if a likely recovery action was clicked.
+    """
+    recover_xpaths = [
+        "//span[contains(text(), 'Rejoin')]",
+        "//span[contains(text(), 'Join now')]",
+        "//span[contains(text(), 'Join call')]",
+        "//span[contains(text(), 'Try again')]",
+        "//button[contains(., 'Rejoin')]",
+        "//button[contains(., 'Join now')]",
+        "//button[contains(., 'Join call')]",
+        "//button[contains(., 'Try again')]",
+    ]
+    for xp in recover_xpaths:
+        try:
+            btns = driver.find_elements(By.XPATH, xp)
+            for btn in btns:
+                if btn.is_displayed():
+                    btn.click()
+                    print(f"[Join] Recovery action clicked: {xp}")
+                    return True
         except Exception:
             pass
     return False
@@ -341,7 +479,9 @@ def join_meet(meet_link: str) -> str:
     join_start_time = now
     driver          = None
     result          = "error"
-    transcript_lines: list[str] = []   # accumulated caption lines
+    caption_lines: list[str] = []      # accumulated caption lines
+    chat_lines: list[str] = []         # accumulated chat lines
+    seen_chat_lines: set[str] = set()
     last_caption    = ""              # dedup: skip repeated lines
 
     print(f"\n{'='*54}")
@@ -350,10 +490,21 @@ def join_meet(meet_link: str) -> str:
 
     try:
         options = build_chrome_options()
-        driver  = uc.Chrome(options=options, version_main=CHROME_VER)
+        
+        # Use Chromium binary on Linux if detected
+        if sys.platform.startswith("linux") and CHROMIUM_BIN:
+            print(f"[Join] Using Chromium binary: {CHROMIUM_BIN}")
+            driver = uc.Chrome(options=options, version_main=CHROME_VER, browser_executable_path=CHROMIUM_BIN)
+        else:
+            driver = uc.Chrome(options=options, version_main=CHROME_VER)
+        
         driver.get(meet_link)
         print("[Join] Page loaded. Waiting for preview screen...")
-        time.sleep(4)
+        time.sleep(3)
+        
+        # Dismiss any popups that appear on page load
+        dismiss_popups(driver)
+        time.sleep(1)
 
         # ── Mute mic & camera ──────────────────────────────
         mute_device(driver, "microphone")
@@ -371,6 +522,11 @@ def join_meet(meet_link: str) -> str:
         join_start_time = get_ntp_time_ist()
         print("[Join] Joined the meeting!")
         wa.notify_joined(meet_link, join_start_time)
+        
+        # Dismiss any popups that appear after joining
+        time.sleep(1)
+        dismiss_popups(driver)
+        time.sleep(1)
 
         # ── Enable live captions ───────────────────────────
         enable_captions(driver)
@@ -402,17 +558,17 @@ def join_meet(meet_link: str) -> str:
         cfg_max      = load_config().get("max_duration_minutes", 120)
         max_end_time = join_start_time + datetime.timedelta(minutes=cfg_max)
 
-        popup_xpaths = [
-            "//span[contains(text(),'OK')]", "//span[contains(text(),'Ok')]",
-            "//span[contains(text(),'Got it')]", "//button[contains(text(),'OK')]",
-            "//button[contains(text(),'Got it')]",
-        ]
-
         print(f"[Bot] Monitoring meeting (max {cfg_max} min)...")
         consecutive_errors = 0
         farewell_detected   = False
+        transient_retries   = 0
+        MAX_TRANSIENT_RETRIES = 5
         last_caption_scrape = time.time()   # scrape captions every 15 minutes
         CAPTION_INTERVAL    = 900           # 15 minutes in seconds
+        last_chat_scrape    = 0.0
+        CHAT_INTERVAL       = 6             # seconds
+        last_chat_open_try  = 0.0
+        CHAT_OPEN_INTERVAL  = 25            # seconds
 
         while True:
             time.sleep(4)
@@ -428,8 +584,18 @@ def join_meet(meet_link: str) -> str:
                 url = driver.current_url
 
                 # ── URL left the meeting room ───────────────
-                # Google redirects away from the meeting code when host ends
+                # Try recovery first; Meet often redirects briefly to error/rejoin pages.
                 if meet_code not in url:
+                    if "accounts.google.com" in url or "ServiceLogin" in url:
+                        result = "error"
+                        print("[Bot] Session appears signed out (redirected to Google login).")
+                        wa.notify_failed(meet_link, "Google session signed out. Run setup_login.py once on this OS profile.")
+                        break
+                    if "meet.google.com" in url:
+                        if click_rejoin_or_retry(driver) or click_join_button(driver):
+                            print(f"[Bot] Recovery attempted from URL: {url}")
+                            time.sleep(2)
+                            continue
                     result = "host_ended" if "meet.google.com" in url else "left"
                     print(f"[Bot] Meeting URL changed to {url} — exiting.")
                     break
@@ -449,7 +615,7 @@ def join_meet(meet_link: str) -> str:
                     last_caption_scrape = _now
                     cap = scrape_captions(driver).strip()
                     if cap and cap != last_caption:
-                        transcript_lines.append(cap)
+                        caption_lines.append(cap)
                         last_caption = cap
                         cap_lower = cap.lower()
                         if any(phrase in cap_lower for phrase in FAREWELL):
@@ -460,7 +626,40 @@ def join_meet(meet_link: str) -> str:
                             result = "host_ended"
                             break
 
+                # ── Keep tab on chat and capture pasted links/messages ─
+                if _now - last_chat_open_try >= CHAT_OPEN_INTERVAL:
+                    last_chat_open_try = _now
+                    _open_chat_panel(driver)
+
+                if _now - last_chat_scrape >= CHAT_INTERVAL:
+                    last_chat_scrape = _now
+                    for msg in scrape_chat_messages(driver):
+                        if msg not in seen_chat_lines:
+                            seen_chat_lines.add(msg)
+                            stamped = f"[CHAT] {msg}"
+                            chat_lines.append(stamped)
+                            print(f"[Chat] {msg[:120]}")
+
                 # ── Page-level end state detection ──────────
+                PROBLEM_HINTS = [
+                    "there was a problem", "something went wrong", "try again",
+                    "rejoin", "reconnecting", "couldn't connect",
+                ]
+                if any(p in page_lower for p in PROBLEM_HINTS):
+                    if click_rejoin_or_retry(driver) or click_join_button(driver):
+                        transient_retries += 1
+                        print("[Bot] Detected transient meet issue — attempted rejoin.")
+                        if transient_retries <= MAX_TRANSIENT_RETRIES:
+                            try:
+                                driver.refresh()
+                                print(f"[Bot] Refreshing Meet page ({transient_retries}/{MAX_TRANSIENT_RETRIES}).")
+                            except Exception:
+                                pass
+                        time.sleep(2)
+                        continue
+                else:
+                    transient_retries = 0
+
                 if any(p in page_lower for p in HOST_END):
                     result = "host_ended"
                     print("[Bot] Host ended the meeting.")
@@ -480,13 +679,7 @@ def join_meet(meet_link: str) -> str:
                     break
 
                 # ── Dismiss popups ──────────────────────────
-                for px in popup_xpaths:
-                    try:
-                        btn = driver.find_element(By.XPATH, px)
-                        if btn.is_displayed():
-                            btn.click()
-                    except Exception:
-                        pass
+                dismiss_popups(driver)
 
                 consecutive_errors = 0
 
@@ -512,12 +705,22 @@ def join_meet(meet_link: str) -> str:
 
     # ── Post-meeting: AI analysis & Text Report ─────────────
     end_time   = get_ntp_time_ist()
-    transcript = "\n".join(transcript_lines)
+    captions_text = "\n".join(caption_lines)
+    chat_text = "\n".join(chat_lines)
+    transcript = (
+        f"CAPTIONS\n{captions_text}\n\nCHAT\n{chat_text}".strip()
+        if (captions_text or chat_text)
+        else ""
+    )
     date_str   = join_start_time.strftime("%Y-%m-%d")
 
-    print(f"[Bot] Captions collected: {len(transcript_lines)} lines ({len(transcript)} chars)")
+    print(f"[Bot] Captions collected: {len(caption_lines)}")
+    print(f"[Bot] Chat messages captured: {len(chat_lines)}")
     print("[AI] Analysing transcript with LLaMA...")
     ai_results = ai_processor.analyze_text(transcript, date_str)
+    ai_results["transcript"] = transcript
+    ai_results["captions"] = captions_text
+    ai_results["chat_log"] = chat_text
 
     wa._update_meeting_analysis(
         date_str,
@@ -552,6 +755,8 @@ def save_report(meet_link: str, join_time: datetime.datetime,
     tasks             = ai_results.get("tasks", [])
     learning_outcomes = ai_results.get("learning_outcomes", [])
     transcript    = ai_results.get("transcript", "")
+    captions_text = ai_results.get("captions", "")
+    chat_text     = ai_results.get("chat_log", "")
 
     lines = [
         "=" * 60,
@@ -595,7 +800,13 @@ def save_report(meet_link: str, join_time: datetime.datetime,
     else:
         lines += ["ACTION ITEMS", "-" * 60, "  None identified.", ""]
 
-    if transcript:
+    if captions_text:
+        lines += ["CAPTIONS", "-" * 60, captions_text, ""]
+
+    if chat_text:
+        lines += ["CHAT LOG", "-" * 60, chat_text, ""]
+
+    if transcript and not captions_text and not chat_text:
         lines += ["TRANSCRIPT", "-" * 60, transcript, ""]
 
     lines.append("=" * 60)
@@ -610,7 +821,59 @@ def save_report(meet_link: str, join_time: datetime.datetime,
     print(report_text)
 
 
-# ── Scheduled shutdown ────────────────────────────────────
+def dismiss_popups(driver):
+    """
+    Aggressively dismiss all types of popups, alerts, and dialogs on Google Meet.
+    Tries multiple strategies to handle different popup types.
+    """
+    strategies = [
+        # Prefer positive/recovery actions first
+        (By.XPATH, "//button[contains(., 'Join now') or contains(., 'Rejoin') or contains(., 'Try again') or contains(., 'Ask to join')]"),
+        (By.XPATH, "//span[contains(., 'Join now') or contains(., 'Rejoin') or contains(., 'Try again') or contains(., 'Ask to join')]/ancestor::button[1]"),
+
+        # Then safe dismiss actions only
+        (By.XPATH, "//button[contains(text(), 'OK')]"),
+        (By.XPATH, "//button[contains(text(), 'Ok')]"),
+        (By.XPATH, "//button[contains(text(), 'Got it')]"),
+        (By.XPATH, "//button[contains(text(), 'Close')]"),
+        (By.XPATH, "//button[contains(text(), 'Dismiss')]"),
+        (By.XPATH, "//button[contains(text(), 'Skip')]"),
+        (By.XPATH, "//button[contains(text(), 'Cancel')]"),
+        (By.XPATH, "//button[@aria-label='Close']"),
+        (By.XPATH, "//button[@aria-label='Dismiss']"),
+        (By.XPATH, "//button[@aria-label='Cancel']"),
+        (By.CSS_SELECTOR, ".modal button.close"),
+    ]
+    
+    clicked_count = 0
+    dangerous_words = [
+        "leave", "hang up", "end call", "end meeting", "sign out", "log out", "remove"
+    ]
+
+    for strategy_by, strategy_selector in strategies:
+        try:
+            elements = driver.find_elements(strategy_by, strategy_selector)
+            for elem in elements:
+                try:
+                    if elem.is_displayed():
+                        visible_text = (elem.text or "").strip().lower()
+                        aria_label = (elem.get_attribute("aria-label") or "").strip().lower()
+                        combined = f"{visible_text} {aria_label}"
+                        if any(w in combined for w in dangerous_words):
+                            continue
+
+                        # Scroll into view before clicking
+                        driver.execute_script("arguments[0].scrollIntoView(true);", elem)
+                        time.sleep(0.1)
+                        elem.click()
+                        clicked_count += 1
+                        print(f"[Bot] Dismissed popup ({strategy_selector})")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    
+    return clicked_count > 0
 def _schedule_shutdown():
     """
     Schedule a PC shutdown at the configured shutdown_time_ist (default 14:30).
@@ -680,12 +943,12 @@ def run_scheduler():
         mins_past   = now_mins - target_mins          # negative = not yet reached
         mins_to_join = -mins_past if mins_past < 0 else 0
 
-        # 10-minute reminder
-        if not joined_today and not reminder_sent and 9 <= -mins_past <= 10:
+        # 20-minute reminder
+        if not joined_today and not reminder_sent and 19 <= -mins_past <= 20:
             try:
                 link      = get_active_link()
                 target_dt = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-                wa.notify_reminder(link, 10, target_dt)
+                wa.notify_reminder(link, 20, target_dt)
                 reminder_sent = True
             except Exception as e:
                 print(f"[Scheduler] Reminder error: {e}")

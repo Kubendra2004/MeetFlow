@@ -31,9 +31,18 @@ PORTAL_URL  = "https://vtu.internyet.in/sign-in"
 DIARY_URL   = "https://vtu.internyet.in/dashboard/student/student-diary"
 
 if sys.platform.startswith("linux"):
-    PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_vtu_linux")
+    PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile_vtu_linux"))
+    # Chromium binary paths on Linux (in order of preference)
+    CHROMIUM_PATHS = [
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/snap/bin/chromium",
+        "/opt/chromium/chromium",
+    ]
+    CHROMIUM_BIN = next((p for p in CHROMIUM_PATHS if os.path.exists(p)), None)
 else:
-    PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_vtu")
+    PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile_vtu"))
+    CHROMIUM_BIN = None
 
 CHROME_VER  = 145
 TIMEOUT     = 15
@@ -51,6 +60,11 @@ def load_cfg():
 # ── Driver ─────────────────────────────────────────────────
 def build_driver():
     opts = uc.ChromeOptions()
+    
+    # Ensure profile directory exists
+    os.makedirs(PROFILE_DIR, exist_ok=True)
+    print(f"[VTU] Using profile: {PROFILE_DIR}")
+    
     opts.add_argument(f"--user-data-dir={PROFILE_DIR}")
     opts.add_argument("--disable-extensions")
     opts.add_argument("--disable-translate")
@@ -60,7 +74,12 @@ def build_driver():
     # Run entirely headless/invisibly in the background
     opts.add_argument("--headless=new")
     
-    return uc.Chrome(options=opts, version_main=CHROME_VER)
+    # Use Chromium binary on Linux if detected
+    if sys.platform.startswith("linux") and CHROMIUM_BIN:
+        print(f"[VTU] Using Chromium binary: {CHROMIUM_BIN}")
+        return uc.Chrome(options=opts, version_main=CHROME_VER, browser_executable_path=CHROMIUM_BIN)
+    else:
+        return uc.Chrome(options=opts, version_main=CHROME_VER)
 
 # ── Popup dismisser ─────────────────────────────────────────
 def dismiss_popups(driver):
