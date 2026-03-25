@@ -12,7 +12,6 @@ import traceback
 import os
 import json
 import ntplib
-import sys
 import datetime
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
@@ -25,20 +24,7 @@ import ai_processor
 
 # ── Constants ────────────────────────────────────────────
 CONFIG_FILE = "config.json"
-
-if sys.platform.startswith("linux"):
-    PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile_linux"))
-    # Chromium binary paths on Linux (in order of preference)
-    CHROMIUM_PATHS = [
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/snap/bin/chromium",
-        "/opt/chromium/chromium",
-    ]
-    CHROMIUM_BIN = next((p for p in CHROMIUM_PATHS if os.path.exists(p)), None)
-else:
-    PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile"))
-    CHROMIUM_BIN = None
+PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile")
 IST_OFFSET  = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 CHROME_VER  = 145   # ← update this if you upgrade Chrome
 

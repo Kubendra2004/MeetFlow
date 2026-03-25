@@ -29,20 +29,7 @@ load_dotenv()
 # ── Config ─────────────────────────────────────────────────
 PORTAL_URL  = "https://vtu.internyet.in/sign-in"
 DIARY_URL   = "https://vtu.internyet.in/dashboard/student/student-diary"
-
-if sys.platform.startswith("linux"):
-    PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile_vtu_linux"))
-    # Chromium binary paths on Linux (in order of preference)
-    CHROMIUM_PATHS = [
-        "/usr/bin/chromium-browser",
-        "/usr/bin/chromium",
-        "/snap/bin/chromium",
-        "/opt/chromium/chromium",
-    ]
-    CHROMIUM_BIN = next((p for p in CHROMIUM_PATHS if os.path.exists(p)), None)
-else:
-    PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile_vtu"))
-    CHROMIUM_BIN = None
+PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_vtu")
 
 CHROME_VER  = 145
 TIMEOUT     = 15
