@@ -1,4 +1,4 @@
-# MeetFlow — Intelligent Meeting Assistant & Internship Diary Automator
+# MeetFlow — Intelligent Meeting Automator
 
 > A personal productivity tool that automates the full lifecycle of an online meeting — from auto-joining and real-time transcription to AI-powered report generation and internship diary submission.
 
