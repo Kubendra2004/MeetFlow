@@ -1,200 +1,153 @@
-# 🤖 Google Meet Auto-Joiner v2
+# MeetFlow — Intelligent Meeting Assistant & Internship Diary Automator
 
-Automatically joins Google Meet at a scheduled time, records audio, generates an AI summary with tasks and deadlines, and sends everything to your WhatsApp. Shuts down your PC when the host ends the meeting.
-
----
-
-## ⚠️ SECURITY — READ FIRST
-
-> **NEVER share the `chrome_profile/`, `.env`, or `meetings_db.json` files.**
-> - `chrome_profile/` = your Google login session (like giving someone your password)
-> - `.env` = your Twilio and Gemini API keys
->
-> When sharing with friends, only send: `meet_joiner.py`, `test_meet.py`, `requirements.txt`, `run_meet_joiner.bat`, `README.md`, `audio_recorder.py`, `ai_processor.py`, `whatsapp_notifier.py`, `whatsapp_bot_server.py`
->
-> Your friend **must do their own setup** (Step 5 below) to create their own login session.
+> A personal productivity tool that automates the full lifecycle of an online meeting — from auto-joining and real-time transcription to AI-powered report generation and internship diary submission.
 
 ---
 
-## 🚀 What It Does
+## ✨ Overview
 
+**MeetFlow** is a Python-based automation pipeline designed to streamline online meeting management and post-meeting reporting. It leverages AI to extract meaningful insights from meetings and automatically populates structured daily logs on a student internship portal.
+
+### What it does
 ```
-12:45 PM  → PC wakes from sleep (Task Scheduler)
-           ↓
-           Bot starts, fetches real IST time from internet
-           ↓
-1:00 PM   → Chrome opens (resource-optimised)
-           → Mic & camera auto-muted
-           → "Ask to join" / "Join now" clicked
-           ↓
-           In meeting:
-           → Audio recorded (16kHz, speech quality)
-           → Popups auto-dismissed
-           → Monitors for host-end / being kicked
-           ↓
-If KICKED → Auto-rejoins once (15s delay)
-           ↓
-Host ends → Audio recording stops
-         → Gemini AI transcribes & analyses
-         → WhatsApp report sent (summary + tasks + deadlines)
-         → PC shuts down
+Scheduled Start
+  → Chrome opens silently in the background
+  → Joins Google Meet at the scheduled time (mic & camera muted)
+  → Quietly collects live captions every 15 minutes
+  ↓
+Meeting Ends (detected automatically)
+  → AI processes the session transcript (Groq LLaMA)
+  → Generates a 3-point Learning Outcomes summary in plain text
+  → Saves a structured daily report  (reports/YYYY-MM-DD.txt)
+  ↓
+Internship Portal Submission (fully automated)
+  → Headless Chrome logs into the internship portal
+  → Fills date, work summary, hours (randomised 8–12), learning outcomes & skills
+  → Detects keywords (e.g. "cloud", "Google") and adds relevant skills dynamically
+  → Diary submitted automatically — no user interaction needed
+  ↓
+Session Complete
+  → PC shuts down on schedule
 ```
 
 ---
 
-## 📋 Requirements
+## 🧠 AI Pipeline
 
-1. **Windows PC**
-2. **Google Chrome** — [Download](https://www.google.com/chrome/)
-3. **Python 3.10+** — [Download](https://www.python.org/downloads/) *(tick "Add to PATH"!)*
-4. **Twilio account** (free) — [Sign up](https://www.twilio.com/)
-5. **Google Gemini API key** — [Get one](https://aistudio.google.com/app/apikey)
+| Stage | Model / Library | Purpose |
+|-------|----------------|---------|
+| Caption cleanup | Python regex | Filter UI noise from raw captions |
+| Transcript analysis | Groq LLaMA 3 | Summarise, extract tasks & learning outcomes |
+| Fallback generation | Groq LLaMA 3 | Generate realistic diary entry if no captions |
+| Output formatting | JSON schema | Structured 3-point plain-text learning outcomes |
 
 ---
 
-## 🛠️ Setup (Step by Step)
+## 📁 Project Structure
 
-### Step 1 — Put All Files in One Folder
-Example: `C:\Users\YourName\google meet joiner\`
-
-### Step 2 — Open Terminal in That Folder
-Click the address bar in File Explorer, type `cmd`, press Enter.
-
-### Step 3 — Install Libraries
 ```
+MeetFlow/
+│
+├── meet_joiner.py          # Core bot: joins meeting, scrapes captions, triggers pipeline
+├── ai_processor.py         # AI: transcript cleaning, analysis, fallback generation
+├── vtu_diary.py            # Portal automation: headless diary submission
+├── whatsapp_notifier.py    # Post-meeting WhatsApp notification helper
+├── whatsapp_bot_server.py  # Flask-based WhatsApp query bot
+│
+├── config.json             # Meeting link, join time, skills, hours config
+├── requirements.txt        # Python dependencies
+├── run_meet_joiner.bat     # One-click Windows launcher (low-priority process)
+├── run_whatsapp_server.bat # Starts the WhatsApp bot Flask server
+│
+├── reports/                # Auto-generated daily meeting reports (gitignored)
+├── chrome_profile/         # Persistent Chrome session (gitignored — never share)
+├── chrome_profile_vtu/     # Persistent VTU portal session (gitignored — never share)
+├── .env                    # API keys (gitignored — never share)
+└── meetings_db.json        # Meeting history database (gitignored)
+```
+
+---
+
+## ⚙️ Setup
+
+### 1. Install dependencies
+```bash
 pip install -r requirements.txt
 ```
 
-### Step 4 — Fill in Your Credentials
-Create a file called `.env` in the folder with:
+### 2. Configure credentials
+Create a `.env` file:
 ```
-Gemini=YOUR_GEMINI_API_KEY
-TWILIO_ACCOUNT_SID = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-TWILIO_AUTH_TOKEN = "your_auth_token_here"
+GROQ_API_KEY=your_groq_api_key
+VTU_USERNAME=your_vtu_email@gmail.com
+VTU_PASSWORD=yourPassword
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your_auth_token
 ```
 
-### Step 5 — Configure Your Meeting
+### 3. Configure your meeting
 Edit `config.json`:
 ```json
 {
   "meet_link": "https://meet.google.com/your-code-here",
-  "dynamic_link_override": null,
-  "join_time_ist": "13:00"
+  "join_time_ist": "13:00",
+  "vtu_skills": ["Android Studio", "Kotlin"],
+  "vtu_hours": 9.0
 }
 ```
 
-### Step 6 — Sign into Google (One-Time)
-1. In `meet_joiner.py`, set `TEST_MODE = True`
-2. Run: `python meet_joiner.py`
-3. Sign into Google in the Chrome window that opens
-4. Press Ctrl+C to stop
-5. Set `TEST_MODE = False` again
+### 4. One-time Google login
+1. Set `TEST_MODE = True` in `meet_joiner.py`
+2. Run `python meet_joiner.py`
+3. Log into Google in the Chrome window that opens
+4. Press `Ctrl+C`, then set `TEST_MODE = False`
 
-### Step 7 — Set Up Twilio WhatsApp Sandbox (One-Time)
-1. Open WhatsApp → message **+1 415 523 8886**
-2. Send: `join <your-sandbox-keyword>` (find keyword in [Twilio Console](https://console.twilio.com/))
-
-### Step 8 — Test Everything
+### 5. One-time VTU login
+```bash
+python vtu_diary.py --test
 ```
-python test_meet.py
-```
-All 7 tests should pass. Press Ctrl+C after Test 7 starts.
+Log in manually in the Chrome window. Future runs will use the saved session.
 
 ---
 
-## 🏃 How to Run
+## 🚀 Usage
 
-### Manual
-Double-click `run_meet_joiner.bat` — or in cmd:
-```
+### Run manually
+```bash
 python meet_joiner.py
+# or double-click:
+run_meet_joiner.bat
 ```
 
-### Fully Automatic (Task Scheduler)
-1. Press `Win+R` → `taskschd.msc` → Enter
-2. Click **Create Task**
-3. **General:** Name it, tick *Run with highest privileges*
-4. **Triggers → New:** Daily at **12:45 PM**, tick ✅ *Wake the computer*
-5. **Actions → New:** Program = full path to `run_meet_joiner.bat`
-6. **Settings:** Tick *Allow task to be run on demand*
-7. OK → enter Windows password
+### Test VTU diary submission (no submit click)
+```bash
+python vtu_diary.py --test
+```
 
-**Enable wake timers:** Settings → Power & Sleep → Advanced power settings → Sleep → Allow wake timers → **Enable**
+### Submit diary for a specific past date
+```bash
+python vtu_diary.py --date 2026-03-22
+```
+
+### Fully automatic via Windows Task Scheduler
+1. `Win+R` → `taskschd.msc`
+2. Create Task → Trigger: Daily at 12:45 PM, *Wake computer*
+3. Action: Full path to `run_meet_joiner.bat`
+4. Enable wake timers in Power Options → Sleep → Allow wake timers
 
 ---
 
 ## 💬 WhatsApp Bot Commands
 
-Run `run_whatsapp_server.bat` (requires [ngrok](https://ngrok.com/) to expose it publicly).
+Run `run_whatsapp_server.bat` (requires [ngrok](https://ngrok.com/)):
 
-| Text this | Bot replies with |
-|-----------|-----------------|
-| `hello` / `help` | Overview + available commands |
-| `2026-02-28` | Full meeting record for that date |
+| Command | Response |
+|---------|----------|
+| `hello` / `help` | Available commands |
 | `today` | Today's meeting record |
-| `stats` | Total meetings + hours |
-| `setlink https://meet.google.com/xxx` | Override today's meeting link |
-
----
-
-## 📱 WhatsApp Report (After Meeting)
-
-```
-🤖 Google Meet Bot — Meeting Report
-==============================
-📅 2026-02-28  |  ⏱️ Duration: 1h 15m
-
-📝 Summary:
-The team reviewed sprint progress...
-
-🔑 Key Decisions:
-🔑 Launch confirmed for March 15
-
-📋 Action Items:
-
-🚨 [URGENT] Finalise mockups for client
-    👤 Kubi
-    ⏰ Deadline: Tomorrow
-
-✅ Update API docs
-    ⏰ Deadline: End of week
-
-💤 Shutting down PC in 10 seconds...
-```
-
----
-
-## ⚡ Resource Optimisations Applied
-
-| Area | Optimisation | Saving |
-|------|-------------|--------|
-| Chrome | 12 efficiency flags | ~30% less RAM |
-| Chrome | Images blocked | ~50% less render memory |
-| Chrome | V8 heap capped at 512 MB | Prevents memory bloat |
-| Scheduler | Adaptive sleep (60s/30s/5s) | ~95% less CPU while idle |
-| Monitoring | JS body text vs full page_source | ~80% less memory per check |
-| Audio | 16kHz sample rate (was 44100) | ~4x smaller files |
-| Process | BELOWNORMAL priority (bat file) | PC stays responsive |
-
----
-
-## 📁 File Guide
-
-| File | Purpose |
-|------|---------|
-| `meet_joiner.py` | Main bot |
-| `audio_recorder.py` | Mic recording during meeting |
-| `ai_processor.py` | Gemini transcription + task extraction |
-| `whatsapp_notifier.py` | WhatsApp alerts |
-| `whatsapp_bot_server.py` | Flask bot server for queries |
-| `test_meet.py` | 7-test verification suite |
-| `config.json` | Meeting link + join time |
-| `run_meet_joiner.bat` | Launch bot (low priority) |
-| `run_whatsapp_server.bat` | Launch Flask bot server |
-| `recordings/` | Meeting audio files |
-| `meetings_db.json` | ⚠️ Meeting history — don't share |
-| `chrome_profile/` | ⚠️ Google login — **NEVER share** |
-| `.env` | ⚠️ API keys — **NEVER share** |
+| `2026-03-25` | Report for that date |
+| `stats` | Total meetings and hours |
+| `setlink https://meet.google.com/xxx` | Override meeting link |
 
 ---
 
@@ -202,8 +155,29 @@ The team reviewed sprint progress...
 
 | Problem | Fix |
 |---------|-----|
-| Chrome version error | Update `CHROME_VER = 145` in `meet_joiner.py` to match your Chrome version |
-| Not signed in | Delete `chrome_profile/`, redo Step 6 |
+| Chrome version mismatch | Update `CHROME_VER` in `meet_joiner.py` to match your Chrome version |
+| Not signed in to Google | Delete `chrome_profile/`, redo the one-time login step |
+| VTU portal login lost | Delete `chrome_profile_vtu/`, redo the VTU login step |
+| AI errors (400/context too long) | Captions are now scraped every 15 min — should not occur |
 | PC doesn't wake | Enable wake timers in Power Options |
-| No WhatsApp messages | Check `.env` Twilio credentials; ensure you joined the Sandbox (Step 7) |
-| Gemini errors | Check your `Gemini` API key in `.env` |
+
+---
+
+## 🔐 Security
+
+> **NEVER share or upload these files/folders:**
+> - `chrome_profile/` and `chrome_profile_vtu/` — your login sessions
+> - `.env` — your API keys
+> - `meetings_db.json` — your meeting history
+
+All three are listed in `.gitignore` and will never be committed to version control.
+
+---
+
+## 🛠️ Tech Stack
+
+- **Python 3.10+**
+- **Selenium / undetected-chromedriver** — browser automation
+- **Groq API (LLaMA 3)** — AI transcript analysis
+- **Flask** — WhatsApp bot server
+- **python-dotenv** — credential management
