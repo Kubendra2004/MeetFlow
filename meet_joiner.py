@@ -354,30 +354,138 @@ def click_join_button(driver) -> bool:
     Waits up to 15 seconds total.
     """
     xpaths = [
-        "//span[contains(text(), 'Ask to join')]",
-        "//span[contains(text(), 'Join now')]",
-        "//span[contains(text(), 'Rejoin')]",
-        "//span[contains(text(), 'Join call')]",
-        "//span[contains(text(), 'Try again')]",
-        "//div[@role='button']//span[text()='Ask to join']",
-        "//div[@role='button']//span[text()='Join now']",
-        "//div[@role='button']//span[contains(text(),'Rejoin')]",
-        "//button[.//span[contains(text(),'Ask to join')]]",
-        "//button[.//span[contains(text(),'Join now')]]",
-        "//button[.//span[contains(text(),'Rejoin')]]",
-        "//button[contains(., 'Join now')]",
-        "//button[contains(., 'Rejoin')]",
-        "//button[contains(., 'Try again')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'ask to join')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join now')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'ready to join')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'rejoin')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join call')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'try again')]",
+        "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
+        "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
+        "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'rejoin')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'rejoin')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'try again')]",
+        "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
+        "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
     ]
     for xpath in xpaths:
         try:
-            btn = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, xpath))
-            )
-            btn.click()
-            return True
+            btns = driver.find_elements(By.XPATH, xpath)
+            for btn in btns:
+                try:
+                    if not btn.is_displayed():
+                        continue
+                    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
+                    time.sleep(0.1)
+                    try:
+                        btn.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", btn)
+                    return True
+                except Exception:
+                    continue
         except Exception:
-            pass
+            continue
+    return False
+
+
+def _is_in_meeting_ui(driver) -> bool:
+    """
+    Detect if user is already inside meeting (toolbar visible).
+    """
+    checks = [
+        "//button[contains(@aria-label,'Leave')]",
+        "//button[contains(@aria-label,'Hang up')]",
+        "//div[@role='button' and contains(@aria-label,'Leave')]",
+        "//button[contains(@aria-label,'Turn off microphone') or contains(@aria-label,'Turn on microphone')]",
+        "//button[contains(@aria-label,'Turn off camera') or contains(@aria-label,'Turn on camera')]",
+    ]
+    for xp in checks:
+        try:
+            for el in driver.find_elements(By.XPATH, xp):
+                if el.is_displayed():
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def _is_waiting_for_admission(driver) -> bool:
+    """
+    Detect waiting-room states after clicking "Ask to join".
+    """
+    try:
+        page_text = driver.execute_script("return document.body ? document.body.textContent : '';") or ""
+        p = page_text.lower()
+    except Exception:
+        p = ""
+
+    markers = [
+        "asking to join",
+        "ask to join sent",
+        "request sent",
+        "you'll join when",
+        "someone in the call needs to let you in",
+        "waiting for someone to let you in",
+        "you cannot join this call",
+    ]
+    if any(m in p for m in markers):
+        return True
+
+    try:
+        waiting_badges = driver.find_elements(
+            By.XPATH,
+            "//*[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'asking to join')"
+            " or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'request sent')"
+            " or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'waiting for someone to let you in')]"
+        )
+        return any(el.is_displayed() for el in waiting_badges)
+    except Exception:
+        return False
+
+
+def join_with_popup_retries(driver, timeout_s: int = 120) -> bool:
+    """
+    Retry join flow while dismissing popups so transient dialogs
+    do not block meeting entry.
+    """
+    end_at = time.time() + max(30, timeout_s)
+    last_mute_at = 0.0
+    waiting_logged = False
+
+    while time.time() < end_at:
+        # Stop retrying if we are already admitted.
+        if _is_in_meeting_ui(driver):
+            return True
+
+        dismiss_popups(driver)
+
+        # Avoid spamming mute checks every loop.
+        now = time.time()
+        if now - last_mute_at >= 5:
+            mute_device(driver, "microphone")
+            mute_device(driver, "camera")
+            last_mute_at = now
+
+        if click_join_button(driver):
+            time.sleep(1.5)
+            if _is_in_meeting_ui(driver):
+                return True
+
+        # Ask-to-join flow can hide the join button while waiting for host approval.
+        if _is_waiting_for_admission(driver):
+            if not waiting_logged:
+                print("[Join] Ask-to-join sent. Waiting for host approval...")
+                waiting_logged = True
+            time.sleep(2.0)
+            continue
+
+        time.sleep(1.2)
     return False
 
 
@@ -492,17 +600,24 @@ def join_meet(meet_link: str) -> str:
         dismiss_popups(driver)
         time.sleep(1)
 
-        # ── Mute mic & camera ──────────────────────────────
-        mute_device(driver, "microphone")
-        time.sleep(0.5)
-        mute_device(driver, "camera")
-        time.sleep(0.5)
-
-        # ── Click Join button ──────────────────────────────
-        joined = click_join_button(driver)
+        # ── Mute mic & camera + robust popup-aware join ────
+        joined = join_with_popup_retries(driver, timeout_s=180)
         if not joined:
-            print("[Join] Could not find Join button — are you signed in?")
-            wa.notify_failed(meet_link, "Join button not found. Check Chrome sign-in.")
+            current_url = ""
+            try:
+                current_url = driver.current_url
+            except Exception:
+                pass
+
+            if "accounts.google.com" in current_url or "servicelogin" in current_url.lower():
+                err = "Google account not signed in for this Chrome profile."
+            elif _is_waiting_for_admission(driver):
+                err = "Join request sent, but host did not admit in time."
+            else:
+                err = "Join button not found on preview screen."
+
+            print(f"[Join] Could not complete join flow: {err}")
+            wa.notify_failed(meet_link, err)
             return "error"
 
         join_start_time = get_ntp_time_ist()
@@ -816,15 +931,22 @@ def dismiss_popups(driver):
         # Prefer positive/recovery actions first
         (By.XPATH, "//button[contains(., 'Join now') or contains(., 'Rejoin') or contains(., 'Try again') or contains(., 'Ask to join')]"),
         (By.XPATH, "//span[contains(., 'Join now') or contains(., 'Rejoin') or contains(., 'Try again') or contains(., 'Ask to join')]/ancestor::button[1]"),
+        (By.XPATH, "//div[@role='button' and (contains(., 'Join now') or contains(., 'Rejoin') or contains(., 'Try again') or contains(., 'Ask to join'))]"),
+        (By.XPATH, "//*[@role='dialog']//button"),
+        (By.XPATH, "//*[@role='alertdialog']//button"),
 
         # Then safe dismiss actions only
         (By.XPATH, "//button[contains(text(), 'OK')]"),
         (By.XPATH, "//button[contains(text(), 'Ok')]"),
+        (By.XPATH, "//button[contains(text(), 'Okay')]"),
         (By.XPATH, "//button[contains(text(), 'Got it')]"),
         (By.XPATH, "//button[contains(text(), 'Close')]"),
         (By.XPATH, "//button[contains(text(), 'Dismiss')]"),
         (By.XPATH, "//button[contains(text(), 'Skip')]"),
         (By.XPATH, "//button[contains(text(), 'Cancel')]"),
+        (By.XPATH, "//button[contains(text(), 'Not now')]"),
+        (By.XPATH, "//button[contains(text(), 'No thanks')]"),
+        (By.XPATH, "//button[contains(text(), 'Continue without')]"),
         (By.XPATH, "//button[@aria-label='Close']"),
         (By.XPATH, "//button[@aria-label='Dismiss']"),
         (By.XPATH, "//button[@aria-label='Cancel']"),
@@ -849,9 +971,12 @@ def dismiss_popups(driver):
                             continue
 
                         # Scroll into view before clicking
-                        driver.execute_script("arguments[0].scrollIntoView(true);", elem)
+                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", elem)
                         time.sleep(0.1)
-                        elem.click()
+                        try:
+                            elem.click()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", elem)
                         clicked_count += 1
                         print(f"[Bot] Dismissed popup ({strategy_selector})")
                 except Exception:

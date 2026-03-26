@@ -9,3 +9,4 @@ reports/
 chrome_profile_vtu_linux/
 chrome_profile_linux/
 venv/
+.venv/
