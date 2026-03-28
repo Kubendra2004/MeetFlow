@@ -1,62 +1,12 @@
-﻿<style>
-.mf-hero {
-  border: 1px solid #d9e2ec;
-  border-radius: 14px;
-  padding: 18px 22px;
-  background: linear-gradient(135deg, #f8fbff 0%, #edf4ff 100%);
-  margin-bottom: 14px;
-}
-.mf-tag {
-  display: inline-block;
-  background: #0f172a;
-  color: #ffffff;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  letter-spacing: 0.4px;
-  margin-bottom: 8px;
-}
-.mf-sub {
-  color: #334e68;
-  line-height: 1.6;
-}
-.mf-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
-  margin: 12px 0 8px;
-}
-.mf-card {
-  border: 1px solid #d9e2ec;
-  border-radius: 12px;
-  padding: 14px 16px;
-  background: #ffffff;
-}
-.mf-card h4 {
-  margin: 0 0 8px;
-}
-.mf-before h4 {
-  color: #9f1239;
-}
-.mf-after h4 {
-  color: #0f766e;
-}
-.mf-card ul {
-  margin: 0;
-  padding-left: 18px;
-  color: #243b53;
-}
-</style>
+﻿# MeetFlow
 
-<div class="mf-hero">
-  <div class="mf-tag">PERSONAL PROJECT</div>
-  <h1>MeetFlow</h1>
-  <p class="mf-sub">
-    MeetFlow is a personal meeting automation engine that reliably joins Google Meet sessions,
-    captures discussion context, generates structured AI summaries with a token-efficient pipeline,
-    and converts meeting outcomes into practical daily documentation.
-  </p>
-</div>
+![Project Type](https://img.shields.io/badge/Project-Personal-0f172a)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-blue)
+![Status](https://img.shields.io/badge/Status-Active-success)
+
+> MeetFlow is a personal meeting automation engine that reliably joins Google Meet sessions,
+> captures discussion context, generates structured AI summaries with a token-efficient pipeline,
+> and converts meeting outcomes into practical daily documentation.
 
 ---
 
@@ -85,29 +35,13 @@ Instead of being just a join bot, it behaves like a local meeting assistant with
 
 ## Quick Comparison
 
-<div class="mf-cards">
-  <div class="mf-card mf-before">
-    <h4>Before MeetFlow</h4>
-    <ul>
-      <li>Manual meeting join every day</li>
-      <li>Frequent misses due to popups or late joins</li>
-      <li>Long raw captions with repeated noise</li>
-      <li>Unstructured notes and forgotten action items</li>
-      <li>Daily diary entry required separate manual effort</li>
-    </ul>
-  </div>
-
-  <div class="mf-card mf-after">
-    <h4>With MeetFlow</h4>
-    <ul>
-      <li>Reliable scheduled joins with recovery handling</li>
-      <li>Pre-join media safety and one-time join-page reload</li>
-      <li>Token-efficient AI pipeline for long meeting transcripts</li>
-      <li>Human-like summary with structured tasks and outcomes</li>
-      <li>Automatic report generation and VTU diary handoff</li>
-    </ul>
-  </div>
-</div>
+| Before MeetFlow                               | With MeetFlow                                         |
+| --------------------------------------------- | ----------------------------------------------------- |
+| Manual meeting join every day                 | Reliable scheduled joins with recovery handling       |
+| Frequent misses due to popups or late joins   | Pre-join media safety and one-time join-page reload   |
+| Long raw captions with repeated noise         | Token-efficient AI pipeline for long transcripts      |
+| Unstructured notes and forgotten action items | Human-like summary with structured tasks and outcomes |
+| Separate manual diary effort                  | Automatic report generation and VTU diary handoff     |
 
 ---
 
