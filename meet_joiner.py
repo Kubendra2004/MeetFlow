@@ -307,25 +307,91 @@ def _ensure_device_off(driver, keyword: str) -> tuple[bool, bool]:
     Ensure a pre-join media device is OFF.
     Returns (found_visible_button, is_off_after_action).
     """
+    if keyword == "microphone":
+        aliases = ["microphone", "mic"]
+    else:
+        aliases = ["camera", "video"]
+
     try:
-        btns = driver.find_elements(
-            By.XPATH,
-            f"//*[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{keyword.lower()}')]"
-        )
+        candidates = []
+        for alias in aliases:
+            xp = (
+                "//*[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+                f"'{alias}') and (self::button or @role='button' or self::div)]"
+            )
+            candidates.extend(driver.find_elements(By.XPATH, xp))
+
+        # Deduplicate by underlying element id if possible.
+        seen = set()
+        btns = []
+        for el in candidates:
+            try:
+                key = el.id
+            except Exception:
+                key = str(id(el))
+            if key in seen:
+                continue
+            seen.add(key)
+            btns.append(el)
+
+        found_visible = False
         for btn in btns:
             if not btn.is_displayed():
                 continue
-            label = (btn.get_attribute("aria-label") or "").lower()
-            if "turn on" in label and keyword in label:
-                return True, True  # already off
-            if "turn off" in label and keyword in label:
-                try:
-                    btn.click()
-                except Exception:
-                    driver.execute_script("arguments[0].click();", btn)
-                time.sleep(0.25)
+            found_visible = True
+
+            label = ((btn.get_attribute("aria-label") or "") + " " + (btn.text or "")).strip().lower()
+            aria_pressed = (btn.get_attribute("aria-pressed") or "").strip().lower()
+            is_relevant = any(a in label for a in aliases)
+            if not is_relevant:
+                continue
+
+            # Most Meet media toggles expose aria-pressed=true (on) / false (off).
+            if aria_pressed == "false":
                 return True, True
-            return True, False
+            if aria_pressed == "true":
+                for _ in range(2):
+                    try:
+                        btn.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(0.35)
+                    new_pressed = (btn.get_attribute("aria-pressed") or "").strip().lower()
+                    if new_pressed == "false":
+                        return True, True
+                return True, False
+
+            # Off-state label variants observed on Meet UIs.
+            off_markers = [
+                "turn on",
+                "is off",
+                "off",
+            ]
+            on_markers = [
+                "turn off",
+                "is on",
+                "on",
+            ]
+
+            if any(m in label for m in off_markers) and not any(m in label for m in on_markers if m != "on"):
+                return True, True
+
+            if "turn off" in label or "is on" in label or f"{aliases[0]} on" in label or f"{aliases[-1]} on" in label:
+                # Click to turn device off, then verify by re-reading aria-label.
+                for _ in range(2):
+                    try:
+                        btn.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(0.35)
+                    new_label = ((btn.get_attribute("aria-label") or "") + " " + (btn.text or "")).strip().lower()
+                    if any(a in new_label for a in aliases) and ("turn on" in new_label or "is off" in new_label):
+                        return True, True
+
+                # Found control but failed to verify OFF state.
+                return True, False
+
+        return found_visible, False
     except Exception:
         pass
     return False, False
@@ -338,20 +404,54 @@ def _prejoin_media_ready(driver) -> bool:
     return mic_found and cam_found and mic_off and cam_off
 
 
+def _prejoin_media_state(driver) -> dict:
+    """Return detailed pre-join media state for logging and fallback decisions."""
+    mic_found, mic_off = _ensure_device_off(driver, "microphone")
+    cam_found, cam_off = _ensure_device_off(driver, "camera")
+    return {
+        "mic_found": mic_found,
+        "mic_off": mic_off,
+        "cam_found": cam_found,
+        "cam_off": cam_off,
+        "ready": mic_found and cam_found and mic_off and cam_off,
+    }
+
+
 def _has_join_controls(driver) -> bool:
     """Detect visible join-related controls without clicking."""
     xpaths = [
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'ask to join')]",
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join now')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join the call')]",
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'ready to join')]",
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'rejoin')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join the call')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'rejoin')]",
         "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join the call')]",
         "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
         "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
+    ]
+    for xp in xpaths:
+        try:
+            for el in driver.find_elements(By.XPATH, xp):
+                if el.is_displayed():
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def _has_preview_ui(driver) -> bool:
+    """Detect preview/lobby-only UI markers (means not yet inside call)."""
+    xpaths = [
+        "//*[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'other ways to join')]",
+        "//*[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
+        "//*[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
+        "//*[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
     ]
     for xp in xpaths:
         try:
@@ -543,20 +643,25 @@ def click_join_button(driver) -> bool:
     xpaths = [
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'ask to join')]",
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join now')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join the call')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join the call now')]",
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'ready to join')]",
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'rejoin')]",
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join call')]",
         "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'try again')]",
         "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
         "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join the call')]",
         "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
         "//div[@role='button']//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'rejoin')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join the call')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'rejoin')]",
         "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'try again')]",
         "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join the call')]",
         "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
         "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
     ]
@@ -578,6 +683,28 @@ def click_join_button(driver) -> bool:
                     continue
         except Exception:
             continue
+
+    # Fallback: text-based JS click for Meet UI variants where text is nested differently.
+    try:
+        clicked = driver.execute_script("""
+            const patterns = ['join the call now', 'join the call', 'join now', 'ask to join', 'ready to join', 'rejoin'];
+            const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+            for (const el of candidates) {
+                const txt = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase().trim();
+                if (!txt) continue;
+                if (patterns.some(p => txt.includes(p))) {
+                    el.scrollIntoView({block: 'center'});
+                    el.click();
+                    return true;
+                }
+            }
+            return false;
+        """)
+        if clicked:
+            return True
+    except Exception:
+        pass
+
     return False
 
 
@@ -585,12 +712,16 @@ def _is_in_meeting_ui(driver) -> bool:
     """
     Detect if user is already inside meeting (toolbar visible).
     """
+    # If preview/lobby controls are visible, we are NOT in the active call yet.
+    if _has_join_controls(driver) or _has_preview_ui(driver):
+        return False
+
     checks = [
         "//button[contains(@aria-label,'Leave')]",
         "//button[contains(@aria-label,'Hang up')]",
         "//div[@role='button' and contains(@aria-label,'Leave')]",
-        "//button[contains(@aria-label,'Turn off microphone') or contains(@aria-label,'Turn on microphone')]",
-        "//button[contains(@aria-label,'Turn off camera') or contains(@aria-label,'Turn on camera')]",
+        "//button[contains(@aria-label,'People')]",
+        "//button[contains(@aria-label,'Chat')]",
     ]
     for xp in checks:
         try:
@@ -636,6 +767,49 @@ def _is_waiting_for_admission(driver) -> bool:
         return False
 
 
+def _force_media_off_in_call(driver):
+    """Best-effort in-call mute to guarantee mic/camera are not left ON after joining."""
+    targets = [
+        "microphone",
+        "camera",
+    ]
+
+    for target in targets:
+        aliases = [target]
+        if target == "microphone":
+            aliases.append("mic")
+        if target == "camera":
+            aliases.append("video")
+
+        try:
+            els = []
+            for alias in aliases:
+                xp = (
+                    "//*[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+                    f"'{alias}') and (self::button or @role='button' or self::div)]"
+                )
+                els.extend(driver.find_elements(By.XPATH, xp))
+
+            for el in els:
+                if not el.is_displayed():
+                    continue
+                label = ((el.get_attribute("aria-label") or "") + " " + (el.text or "")).lower()
+                if not any(a in label for a in aliases):
+                    continue
+
+                # If label says "Turn off ...", device is currently ON; click once to turn it OFF.
+                if "turn off" in label or "is on" in label:
+                    try:
+                        el.click()
+                    except Exception:
+                        driver.execute_script("arguments[0].click();", el)
+                    print(f"[Join] Forced {target} OFF after join.")
+                    time.sleep(0.2)
+                    break
+        except Exception:
+            continue
+
+
 def join_with_popup_retries(driver, timeout_s: int = 120) -> bool:
     """
     Retry join flow while dismissing popups so transient dialogs
@@ -645,7 +819,10 @@ def join_with_popup_retries(driver, timeout_s: int = 120) -> bool:
     start_at = time.time()
     waiting_logged = False
     media_wait_logged = False
+    media_fallback_logged = False
     did_one_full_reload = False
+    last_media_status_log = 0.0
+    media_strict_wait_s = 22
 
     while time.time() < end_at:
         # Stop retrying if we are already admitted.
@@ -654,17 +831,52 @@ def join_with_popup_retries(driver, timeout_s: int = 120) -> bool:
 
         dismiss_popups(driver)
 
-        # Strict pre-join gate: do not click Join until both media controls are visible and OFF.
-        if not _prejoin_media_ready(driver):
-            if not media_wait_logged:
-                print("[Join] Waiting for microphone and camera controls to appear and turn OFF...")
-                media_wait_logged = True
-            time.sleep(0.9)
+        # Ask-to-join flow can hide Join controls while host admits.
+        if _is_waiting_for_admission(driver):
+            if not waiting_logged:
+                print("[Join] Ask-to-join sent. Waiting for host approval...")
+                waiting_logged = True
+            time.sleep(2.0)
             continue
+
+        has_join_controls = _has_join_controls(driver)
+
+        # Strict pre-join gate: enforce media-off only when join controls are present.
+        # This avoids deadlocks on intermediate Meet loading/preview transitions.
+        if has_join_controls:
+            media = _prejoin_media_state(driver)
+            if not media["ready"]:
+                elapsed = time.time() - start_at
+                now = time.time()
+                if not media_wait_logged:
+                    print("[Join] Join controls found. Waiting for mic/camera to be visible and OFF...")
+                    media_wait_logged = True
+                if now - last_media_status_log >= 4:
+                    print(
+                        "[Join] Media state: "
+                        f"mic(found={media['mic_found']},off={media['mic_off']}), "
+                        f"cam(found={media['cam_found']},off={media['cam_off']})"
+                    )
+                    last_media_status_log = now
+
+                # After a grace window, don't hard-deadlock if Meet UI variant hides states.
+                if elapsed < media_strict_wait_s:
+                    time.sleep(0.9)
+                    continue
+
+                if not media_fallback_logged:
+                    print("[Join] Media state not fully verifiable after wait; applying best-effort mute fallback.")
+                    media_fallback_logged = True
+                mute_device(driver, "microphone")
+                mute_device(driver, "camera")
+                time.sleep(0.4)
+                media = _prejoin_media_state(driver)
+                if not media["ready"]:
+                    print("[Join] Proceeding with join (best-effort media mute applied).")
 
         # Join controls sometimes never render due to transient Meet state.
         # Perform one full page reload automatically if controls are missing.
-        if not _has_join_controls(driver):
+        if not has_join_controls:
             elapsed = time.time() - start_at
             if not did_one_full_reload and elapsed > 15 and not _is_waiting_for_admission(driver):
                 print("[Join] Join controls missing — doing one full Meet page reload...")
@@ -675,22 +887,20 @@ def join_with_popup_retries(driver, timeout_s: int = 120) -> bool:
                     dismiss_popups(driver)
                     did_one_full_reload = True
                     media_wait_logged = False
+                    last_media_status_log = 0.0
                     continue
                 except Exception as e:
                     print(f"[Join] Reload attempt failed: {e}")
 
         if click_join_button(driver):
-            time.sleep(1.5)
-            if _is_in_meeting_ui(driver):
-                return True
-
-        # Ask-to-join flow can hide the join button while waiting for host approval.
-        if _is_waiting_for_admission(driver):
-            if not waiting_logged:
-                print("[Join] Ask-to-join sent. Waiting for host approval...")
-                waiting_logged = True
-            time.sleep(2.0)
-            continue
+            # Give Meet a short window to transition from preview to in-call UI.
+            deadline = time.time() + 12
+            while time.time() < deadline:
+                if _is_in_meeting_ui(driver):
+                    return True
+                if _is_waiting_for_admission(driver):
+                    break
+                time.sleep(0.4)
 
         time.sleep(1.2)
     return False
@@ -825,6 +1035,7 @@ def join_meet(meet_link: str) -> str:
         join_start_time = get_ntp_time_ist()
         joined_at_iso = join_start_time.isoformat()
         print("[Join] Joined the meeting!")
+        _force_media_off_in_call(driver)
         _log_meeting_start(join_start_time.strftime("%Y-%m-%d"), {
             "meet_link": meet_link,
             "joined_at": joined_at_iso,
@@ -1146,10 +1357,6 @@ def dismiss_popups(driver):
     Tries multiple strategies to handle different popup types.
     """
     strategies = [
-        # Prefer positive/recovery actions first
-        (By.XPATH, "//button[contains(., 'Join now') or contains(., 'Rejoin') or contains(., 'Try again') or contains(., 'Ask to join')]"),
-        (By.XPATH, "//span[contains(., 'Join now') or contains(., 'Rejoin') or contains(., 'Try again') or contains(., 'Ask to join')]/ancestor::button[1]"),
-        (By.XPATH, "//div[@role='button' and (contains(., 'Join now') or contains(., 'Rejoin') or contains(., 'Try again') or contains(., 'Ask to join'))]"),
         (By.XPATH, "//*[@role='dialog']//button"),
         (By.XPATH, "//*[@role='alertdialog']//button"),
 
