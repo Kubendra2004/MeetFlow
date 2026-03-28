@@ -76,7 +76,7 @@ flowchart TD
   I --> K[Meeting DB<br/>meetings_db.json]
   J --> L[VTU Diary Auto-Fill<br/>vtu_diary.py]
 
-  E --> M[End-State Detection<br/>host_ended | kicked | left | error]
+  E --> M[End-State Detection<br/>host_ended, kicked, left, error]
   M --> N[Optional Shutdown Scheduler]
 
   O[Optional Utilities<br/>whatsapp_notifier.py / whatsapp_bot_server.py] -. independent .-> A
