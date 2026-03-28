@@ -555,6 +555,7 @@ def scrape_captions(driver) -> str:
         return ""
 
 
+
 def _open_chat_panel(driver) -> bool:
     """
     Open Google Meet chat panel if it is closed.
