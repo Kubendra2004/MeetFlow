@@ -23,6 +23,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from dotenv import load_dotenv
+import ai_processor
 
 load_dotenv()
 
@@ -33,6 +34,17 @@ PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_vtu")
 
 CHROME_VER  = 145
 TIMEOUT     = 15
+
+if sys.platform.startswith("linux"):
+    CHROMIUM_PATHS = [
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/snap/bin/chromium",
+        "/opt/chromium/chromium",
+    ]
+    CHROMIUM_BIN = next((p for p in CHROMIUM_PATHS if os.path.exists(p)), None)
+else:
+    CHROMIUM_BIN = None
 
 VTU_USERNAME = os.getenv("VTU_USERNAME", "").strip().strip('"')
 VTU_PASSWORD = os.getenv("VTU_PASSWORD", "").strip().strip('"')
@@ -57,9 +69,8 @@ def build_driver():
     opts.add_argument("--disable-translate")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--log-level=3")
-    
-    # Run entirely headless/invisibly in the background
-    opts.add_argument("--headless=new")
+    opts.add_argument("--start-maximized")
+    print("[VTU] Visible mode enabled (headless disabled).")
     
     # Use Chromium binary on Linux if detected
     if sys.platform.startswith("linux") and CHROMIUM_BIN:
@@ -157,11 +168,23 @@ def load_todays_report() -> dict:
 
     files = sorted(glob.glob(f"reports/{target_date}_*.txt"), reverse=True)
     if not files:
-        # Fallback: latest report of any date
-        files = sorted(glob.glob("reports/*.txt"), reverse=True)
-    if not files:
-        print("[VTU] ⚠️  No meeting report found — using placeholders.")
-        return {}
+        print(f"[VTU] ⚠️  No report found for {target_date}. Generating contextual fallback...")
+        generated = ai_processor.generate_no_record_entry(target_date)
+        learnings = "\n".join(generated.get("learning_outcomes", [])[:3]).strip()
+        summary = (generated.get("summary") or "").strip()
+
+        text_for_skill_scan = f"{summary}\n{learnings}"
+        extra_skills = []
+        if re.search(r"\b(google|cloud|gcp)\b", text_for_skill_scan, re.IGNORECASE):
+            extra_skills.append("Google Cloud")
+
+        return {
+            "date": target_date,
+            "summary": summary or "Revisited previous progress and planned the next implementation tasks.",
+            "learnings": learnings or "Reviewed previous work and identified next steps.",
+            "hours": _parse_hours(""),
+            "extra_skills": extra_skills,
+        }
 
     print(f"[VTU] Using report: {files[0]}")
     content = open(files[0], encoding="utf-8").read()

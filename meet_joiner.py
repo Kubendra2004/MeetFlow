@@ -2,7 +2,7 @@
 meet_joiner.py  —  Google Meet Auto-Joiner v2
 =============================================
 Joins a Google Meet at a scheduled time, mutes mic/camera,
-records audio, sends AI summary to WhatsApp, and shuts down
+records captions, writes AI summary/report locally, and shuts down
 the PC when the host ends the meeting.
 
 Edit config.json to change the meeting link or join time.
@@ -11,15 +11,13 @@ import time
 import traceback
 import os
 import json
+import sys
 import ntplib
 import datetime
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
-import whatsapp_notifier as wa
 import ai_processor
 
 # ── Constants ────────────────────────────────────────────
@@ -27,6 +25,20 @@ CONFIG_FILE = "config.json"
 PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile")
 IST_OFFSET  = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 CHROME_VER  = 145   # ← update this if you upgrade Chrome
+DB_FILE     = "meetings_db.json"
+CHROME_LAUNCH_RETRIES = 3
+MEET_PAGELOAD_TIMEOUT = 45
+
+if sys.platform.startswith("linux"):
+    CHROMIUM_PATHS = [
+        "/usr/bin/chromium-browser",
+        "/usr/bin/chromium",
+        "/snap/bin/chromium",
+        "/opt/chromium/chromium",
+    ]
+    CHROMIUM_BIN = next((p for p in CHROMIUM_PATHS if os.path.exists(p)), None)
+else:
+    CHROMIUM_BIN = None
 
 # Testing mode: set True to join immediately without waiting.
 # Or run:  python meet_joiner.py --now
@@ -57,6 +69,70 @@ def save_config(cfg: dict):
         print(f"[Config] Failed to write config.json: {e}")
 
 
+def _load_db() -> dict:
+    try:
+        if os.path.exists(DB_FILE):
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[DB] Failed to read {DB_FILE}: {e}")
+    return {}
+
+
+def _save_db(db: dict):
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[DB] Failed to write {DB_FILE}: {e}")
+
+
+def _log_meeting_start(date_str: str, record: dict):
+    db = _load_db()
+    db.setdefault(date_str, [])
+    db[date_str].append(record)
+    _save_db(db)
+
+
+def _update_meeting_end(date_str: str, joined_at: str, ended_at: str, duration_minutes: int):
+    db = _load_db()
+    items = db.get(date_str, [])
+    if not isinstance(items, list):
+        items = [items]
+
+    for rec in reversed(items):
+        if (rec or {}).get("joined_at") == joined_at:
+            rec["ended_at"] = ended_at
+            rec["duration_minutes"] = duration_minutes
+            break
+    db[date_str] = items
+    _save_db(db)
+
+
+def _update_meeting_analysis_local(
+    date_str: str,
+    joined_at: str,
+    summary: str,
+    tasks: list,
+    transcript: str,
+    learning_outcomes: list,
+):
+    db = _load_db()
+    items = db.get(date_str, [])
+    if not isinstance(items, list):
+        items = [items]
+
+    for rec in reversed(items):
+        if (rec or {}).get("joined_at") == joined_at:
+            rec["summary"] = summary
+            rec["tasks"] = tasks
+            rec["transcript"] = transcript
+            rec["learning_outcomes"] = learning_outcomes
+            break
+    db[date_str] = items
+    _save_db(db)
+
+
 def get_active_link() -> str:
     """
     Returns the dynamic override link if set (and clears it),
@@ -68,6 +144,21 @@ def get_active_link() -> str:
         print(f"[Config] 🔗 Dynamic link override active: {override}")
         cfg["dynamic_link_override"] = None   # one-time use — clear after reading
         save_config(cfg)
+        return override
+    link = cfg.get("meet_link", "")
+    if not link:
+        raise ValueError("No meet_link found in config.json and no dynamic override set.")
+    return link
+
+
+def get_effective_link_preview() -> str:
+    """
+    Return the currently effective link WITHOUT consuming dynamic override.
+    Used for logging/reminders only.
+    """
+    cfg = load_config()
+    override = cfg.get("dynamic_link_override")
+    if override:
         return override
     link = cfg.get("meet_link", "")
     if not link:
@@ -100,6 +191,42 @@ def get_ntp_time_ist() -> datetime.datetime:
             continue
     print("[WARNING] NTP unreachable — falling back to system clock.")
     return datetime.datetime.now(IST_OFFSET)
+
+
+def _wait_for_document_ready(driver, timeout_s: int = 20) -> bool:
+    """Wait until DOM is interactive/complete. Returns False on timeout."""
+    try:
+        WebDriverWait(driver, timeout_s).until(
+            lambda d: (d.execute_script("return document.readyState") or "") in ("interactive", "complete")
+        )
+        return True
+    except Exception:
+        return False
+
+
+def _launch_chrome(options: uc.ChromeOptions):
+    """Launch Chrome with small retries to survive transient driver startup failures."""
+    last_error = None
+    for attempt in range(1, CHROME_LAUNCH_RETRIES + 1):
+        try:
+            if sys.platform.startswith("linux") and CHROMIUM_BIN:
+                print(f"[Join] Using Chromium binary: {CHROMIUM_BIN}")
+                driver = uc.Chrome(
+                    options=options,
+                    version_main=CHROME_VER,
+                    browser_executable_path=CHROMIUM_BIN,
+                )
+            else:
+                driver = uc.Chrome(options=options, version_main=CHROME_VER)
+
+            driver.set_page_load_timeout(MEET_PAGELOAD_TIMEOUT)
+            return driver
+        except Exception as e:
+            last_error = e
+            print(f"[Join] Chrome launch failed (attempt {attempt}/{CHROME_LAUNCH_RETRIES}): {e}")
+            time.sleep(2)
+
+    raise RuntimeError(f"Chrome launch failed after retries: {last_error}")
 
 
 # ── Chrome helpers ────────────────────────────────────────
@@ -145,9 +272,8 @@ def build_chrome_options() -> uc.ChromeOptions:
         "profile.default_content_setting_values.notifications": 2,  # Block notifications
     })
     
-    # Run invisibly off-screen to avoid interrupting the user.
-    # We do NOT use --headless=new because it breaks Google Meet WebRTC/media permissions.
-    options.add_argument("--window-position=-32000,-32000")
+    # Keep browser visible as requested; headless remains disabled for Meet reliability.
+    options.add_argument("--start-maximized")
     
     return options
 
@@ -174,6 +300,67 @@ def mute_device(driver, keyword: str):
                 return
     except Exception as e:
         print(f"[Join] Could not control {keyword}: {e}")
+
+
+def _ensure_device_off(driver, keyword: str) -> tuple[bool, bool]:
+    """
+    Ensure a pre-join media device is OFF.
+    Returns (found_visible_button, is_off_after_action).
+    """
+    try:
+        btns = driver.find_elements(
+            By.XPATH,
+            f"//*[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), '{keyword.lower()}')]"
+        )
+        for btn in btns:
+            if not btn.is_displayed():
+                continue
+            label = (btn.get_attribute("aria-label") or "").lower()
+            if "turn on" in label and keyword in label:
+                return True, True  # already off
+            if "turn off" in label and keyword in label:
+                try:
+                    btn.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", btn)
+                time.sleep(0.25)
+                return True, True
+            return True, False
+    except Exception:
+        pass
+    return False, False
+
+
+def _prejoin_media_ready(driver) -> bool:
+    """Return True only when both mic and camera toggles are visible and OFF."""
+    mic_found, mic_off = _ensure_device_off(driver, "microphone")
+    cam_found, cam_off = _ensure_device_off(driver, "camera")
+    return mic_found and cam_found and mic_off and cam_off
+
+
+def _has_join_controls(driver) -> bool:
+    """Detect visible join-related controls without clicking."""
+    xpaths = [
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'ask to join')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'join now')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'ready to join')]",
+        "//span[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'rejoin')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
+        "//button[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'rejoin')]",
+        "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'join now')]",
+        "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ask to join')]",
+        "//div[@role='button' and contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'ready to join')]",
+    ]
+    for xp in xpaths:
+        try:
+            for el in driver.find_elements(By.XPATH, xp):
+                if el.is_displayed():
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 def enable_captions(driver) -> bool:
@@ -455,8 +642,10 @@ def join_with_popup_retries(driver, timeout_s: int = 120) -> bool:
     do not block meeting entry.
     """
     end_at = time.time() + max(30, timeout_s)
-    last_mute_at = 0.0
+    start_at = time.time()
     waiting_logged = False
+    media_wait_logged = False
+    did_one_full_reload = False
 
     while time.time() < end_at:
         # Stop retrying if we are already admitted.
@@ -465,12 +654,30 @@ def join_with_popup_retries(driver, timeout_s: int = 120) -> bool:
 
         dismiss_popups(driver)
 
-        # Avoid spamming mute checks every loop.
-        now = time.time()
-        if now - last_mute_at >= 5:
-            mute_device(driver, "microphone")
-            mute_device(driver, "camera")
-            last_mute_at = now
+        # Strict pre-join gate: do not click Join until both media controls are visible and OFF.
+        if not _prejoin_media_ready(driver):
+            if not media_wait_logged:
+                print("[Join] Waiting for microphone and camera controls to appear and turn OFF...")
+                media_wait_logged = True
+            time.sleep(0.9)
+            continue
+
+        # Join controls sometimes never render due to transient Meet state.
+        # Perform one full page reload automatically if controls are missing.
+        if not _has_join_controls(driver):
+            elapsed = time.time() - start_at
+            if not did_one_full_reload and elapsed > 15 and not _is_waiting_for_admission(driver):
+                print("[Join] Join controls missing — doing one full Meet page reload...")
+                try:
+                    driver.refresh()
+                    _wait_for_document_ready(driver, timeout_s=20)
+                    time.sleep(1.5)
+                    dismiss_popups(driver)
+                    did_one_full_reload = True
+                    media_wait_logged = False
+                    continue
+                except Exception as e:
+                    print(f"[Join] Reload attempt failed: {e}")
 
         if click_join_button(driver):
             time.sleep(1.5)
@@ -564,7 +771,7 @@ def _click_leave(driver):
 def join_meet(meet_link: str) -> str:
     """
     Opens Chrome, mutes mic/camera, joins the meeting, scrapes live
-    captions, runs LLaMA analysis, sends WhatsApp report.
+    captions, runs LLaMA analysis, and saves local report/database.
     No audio file is created — captions are read directly from the DOM.
 
     Returns one of: 'host_ended' | 'kicked' | 'left' | 'error'
@@ -577,6 +784,7 @@ def join_meet(meet_link: str) -> str:
     chat_lines: list[str] = []         # accumulated chat lines
     seen_chat_lines: set[str] = set()
     last_caption    = ""              # dedup: skip repeated lines
+    joined_at_iso   = ""
 
     print(f"\n{'='*54}")
     print(f"  [{now.strftime('%Y-%m-%d %H:%M:%S')} IST] Joining: {meet_link}")
@@ -584,15 +792,10 @@ def join_meet(meet_link: str) -> str:
 
     try:
         options = build_chrome_options()
-        
-        # Use Chromium binary on Linux if detected
-        if sys.platform.startswith("linux") and CHROMIUM_BIN:
-            print(f"[Join] Using Chromium binary: {CHROMIUM_BIN}")
-            driver = uc.Chrome(options=options, version_main=CHROME_VER, browser_executable_path=CHROMIUM_BIN)
-        else:
-            driver = uc.Chrome(options=options, version_main=CHROME_VER)
-        
+        driver = _launch_chrome(options)
+
         driver.get(meet_link)
+        _wait_for_document_ready(driver, timeout_s=20)
         print("[Join] Page loaded. Waiting for preview screen...")
         time.sleep(3)
         
@@ -617,12 +820,22 @@ def join_meet(meet_link: str) -> str:
                 err = "Join button not found on preview screen."
 
             print(f"[Join] Could not complete join flow: {err}")
-            wa.notify_failed(meet_link, err)
             return "error"
 
         join_start_time = get_ntp_time_ist()
+        joined_at_iso = join_start_time.isoformat()
         print("[Join] Joined the meeting!")
-        wa.notify_joined(meet_link, join_start_time)
+        _log_meeting_start(join_start_time.strftime("%Y-%m-%d"), {
+            "meet_link": meet_link,
+            "joined_at": joined_at_iso,
+            "ended_at": None,
+            "duration_minutes": None,
+            "summary": "Auto-joined by bot",
+            "tasks": [],
+            "key_decisions": [],
+            "learning_outcomes": [],
+            "transcript": "",
+        })
         
         # Dismiss any popups that appear after joining
         time.sleep(1)
@@ -690,7 +903,6 @@ def join_meet(meet_link: str) -> str:
                     if "accounts.google.com" in url or "ServiceLogin" in url:
                         result = "error"
                         print("[Bot] Session appears signed out (redirected to Google login).")
-                        wa.notify_failed(meet_link, "Google session signed out. Run setup_login.py once on this OS profile.")
                         break
                     if "meet.google.com" in url:
                         if click_rejoin_or_retry(driver) or click_join_button(driver):
@@ -823,12 +1035,18 @@ def join_meet(meet_link: str) -> str:
     ai_results["captions"] = captions_text
     ai_results["chat_log"] = chat_text
 
-    wa._update_meeting_analysis(
+    _update_meeting_analysis_local(
         date_str,
-        summary    = ai_results.get("summary", ""),
-        tasks      = ai_results.get("tasks", []),
-        transcript = transcript
+        joined_at_iso,
+        summary=ai_results.get("summary", ""),
+        tasks=ai_results.get("tasks", []),
+        transcript=transcript,
+        learning_outcomes=ai_results.get("learning_outcomes", []),
     )
+
+    total_mins = max(0, int((end_time - join_start_time).total_seconds() // 60))
+    _update_meeting_end(date_str, joined_at_iso, end_time.isoformat(), total_mins)
+
     save_report(meet_link, join_start_time, end_time, ai_results)
 
     print(f"[Bot] Session complete. Result: {result}")
@@ -1028,7 +1246,7 @@ def run_scheduler():
 
     current_ist = get_ntp_time_ist()
     try:
-        default_link = get_active_link()
+        default_link = get_effective_link_preview()
     except ValueError as e:
         print(f"[Scheduler] ❌ {e}")
         return
@@ -1054,12 +1272,12 @@ def run_scheduler():
         mins_past   = now_mins - target_mins          # negative = not yet reached
         mins_to_join = -mins_past if mins_past < 0 else 0
 
-        # 20-minute reminder
+        # 20-minute local reminder (console only)
         if not joined_today and not reminder_sent and 19 <= -mins_past <= 20:
             try:
-                link      = get_active_link()
+                link      = get_effective_link_preview()
                 target_dt = now.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-                wa.notify_reminder(link, 20, target_dt)
+                print(f"[Scheduler] ⏰ Reminder: meeting in 20 minutes at {target_dt.strftime('%H:%M')} IST -> {link}")
                 reminder_sent = True
             except Exception as e:
                 print(f"[Scheduler] Reminder error: {e}")
@@ -1081,12 +1299,8 @@ def run_scheduler():
             # Auto-rejoin once if kicked (not if host ended)
             if result == "kicked":
                 print("[Scheduler] 🔄 Kicked — rejoining once in 15s...")
-                wa.send_whatsapp("🔄 *Meet Bot*: Kicked. Rejoining in 15 seconds...")
                 time.sleep(15)
-                try:
-                    link2 = get_active_link()
-                except ValueError:
-                    link2 = link
+                link2 = link
                 result2 = join_meet(link2)
                 print(f"[Scheduler] Rejoin result: {result2}")
 

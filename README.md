@@ -2,7 +2,7 @@
 
 MeetFlow automates your Google Meet workflow end to end:
 joining meetings, handling popups, collecting captions/chat, generating AI summaries,
-saving reports, posting WhatsApp updates, updating internship diary entries, and
+saving reports, updating internship diary entries, and
 shutting down your PC on schedule.
 
 ## Overview
@@ -17,9 +17,8 @@ Flow summary:
 4. Bot monitors meeting state, captures captions and chat.
 5. AI generates summary, action items, decisions, learning outcomes.
 6. Report is saved locally and meeting record is written to JSON DB.
-7. WhatsApp notifications are sent for join/fail/end.
-8. VTU diary auto-fill runs after meeting end.
-9. Optional timed shutdown is scheduled.
+7. VTU diary auto-fill runs after meeting end.
+8. Optional timed shutdown is scheduled.
 
 ## Full Feature List
 
@@ -29,11 +28,13 @@ Flow summary:
 - Immediate run mode via CLI: `python meet_joiner.py --now`.
 - One-time dynamic meet link override (`dynamic_link_override`) consumed automatically.
 - Persistent Chrome profile for login/session reuse.
-- Auto mic and camera mute before joining.
+- Strict pre-join gate: waits for microphone and camera controls to be visible.
+- Automatically disables microphone and camera before trying to join.
 - Popup-safe join flow with repeated dialog dismissal.
 - Handles join label variations: Ask to join, Join now, Ready to join, Rejoin, Try again.
 - Waiting-room detection after Ask to join (waits for host admission instead of false failure).
 - In-meeting state detection to stop retry loops once admitted.
+- One-time automatic full Meet page reload if join controls are missing.
 - Clear failure reasons (signed out, host did not admit in time, join controls missing).
 
 ### Resilience and Recovery
@@ -43,6 +44,7 @@ Flow summary:
 - Auto refresh attempts under transient failures.
 - Auto rejoin once if removed (kicked) from meeting.
 - Detects logout redirects to Google sign-in and reports this explicitly.
+- Chrome launch retries and DOM-ready waits added for startup reliability.
 
 ### Live Monitoring and Capture
 
@@ -64,19 +66,16 @@ Flow summary:
 
 - AI transcript analysis using Groq LLaMA pipeline.
 - Extracts summary, tasks, key decisions, learning outcomes.
-- Fallback content generation if transcript is sparse.
+- Context-aware fallback generation when transcript is empty.
+- On no-record days, generates continuity summaries from recent days.
+- On Fridays, generates weekly recap style summary.
 - Writes structured text report to `reports/YYYY-MM-DD_HH-MM.txt`.
 - Stores meeting history and AI output in `meetings_db.json`.
 
-### WhatsApp Notifications and Query Bot
+### Optional WhatsApp Tools (Separate from Meet Joiner)
 
-- Sends WhatsApp alert when joined.
-- Sends WhatsApp alert on failure with reason.
-- Sends 20-minute pre-join reminder.
-- Sends post-meeting summary/action-items message.
-- Flask webhook bot supports chat commands:
-  - `help`, `hello`, `today`, `stats`, `YYYY-MM-DD`
-  - `setlink https://meet.google.com/...` for one-time override.
+- `meet_joiner.py` is now local-first and does not require WhatsApp or Twilio.
+- `whatsapp_notifier.py` and `whatsapp_bot_server.py` remain available as optional separate utilities.
 
 ### VTU Internship Diary Automation
 
@@ -94,6 +93,7 @@ Flow summary:
   - scheduler mode
   - join-now mode
 - Ready for Windows Task Scheduler unattended runs.
+- Works with system Python directly (virtual environment is optional).
 
 ## Project Structure
 
@@ -136,6 +136,7 @@ Key fields:
 
 - `meet_link`: default meeting URL.
 - `dynamic_link_override`: one-time replacement link (usually set by WhatsApp `setlink`).
+- `dynamic_link_override`: one-time replacement link (consumed at actual join time).
 - `join_time_ist`: scheduler join time.
 - `shutdown_time_ist`: target shutdown time after run.
 - `max_duration_minutes`: hard meeting cutoff.
@@ -156,6 +157,11 @@ pip install -r requirements.txt
 GROQ_API_KEY=your_groq_api_key
 VTU_USERNAME=your_vtu_email@gmail.com
 VTU_PASSWORD=yourPassword
+```
+
+Optional only if you use WhatsApp helper scripts:
+
+```env
 TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_AUTH_TOKEN=your_auth_token
 ```
@@ -212,16 +218,16 @@ Expose with ngrok and point Twilio sandbox webhook to:
 
 ## Troubleshooting
 
-| Issue                       | Likely Cause                                         | Fix                                                                      |
-| --------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------ |
-| Could not find Join button  | Waiting-room state, signed-out session, UI variation | Re-run `setup_login.py`, confirm profile path, keep updated selectors    |
-| Looping mic/camera checks   | Join request pending host approval                   | Wait for admission or increase join timeout in `join_with_popup_retries` |
-| Redirected to Google login  | Session expired in profile                           | Sign in again using `setup_login.py`                                     |
-| Chrome version mismatch     | `CHROME_VER` differs from installed browser          | Update `CHROME_VER` in scripts                                           |
-| No WhatsApp messages        | Missing Twilio credentials or package                | Verify `.env` and install `twilio`                                       |
-| VTU login failure           | Invalid creds/session expired                        | Verify `.env` and re-login with `vtu_diary.py --test`                    |
-| No reports generated        | Meeting ended too early or AI path failed            | Check console logs and `reports/` write permissions                      |
-| PC not waking for scheduler | Wake timers disabled                                 | Enable wake timers in Windows power settings                             |
+| Issue                       | Likely Cause                                         | Fix                                                                   |
+| --------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------- |
+| Could not find Join button  | Waiting-room state, signed-out session, UI variation | Re-run `setup_login.py`, confirm profile path, keep updated selectors |
+| Join controls never appear  | Transient Meet page state                            | Bot now auto-reloads once; if still failing, re-open link and retry   |
+| Redirected to Google login  | Session expired in profile                           | Sign in again using `setup_login.py`                                  |
+| Chrome version mismatch     | `CHROME_VER` differs from installed browser          | Update `CHROME_VER` in scripts                                        |
+| AI fallback not running     | `GROQ_API_KEY` missing                               | Add `GROQ_API_KEY` in `.env`                                          |
+| VTU login failure           | Invalid creds/session expired                        | Verify `.env` and re-login with `vtu_diary.py --test`                 |
+| No reports generated        | Meeting ended too early or AI path failed            | Check console logs and `reports/` write permissions                   |
+| PC not waking for scheduler | Wake timers disabled                                 | Enable wake timers in Windows power settings                          |
 
 ## Security Notes
 
@@ -239,6 +245,6 @@ These contain active sessions, credentials, and personal records.
 - Python 3.10+
 - Selenium + undetected-chromedriver
 - Groq API (LLaMA)
-- Flask (WhatsApp webhook)
-- Twilio WhatsApp Sandbox
+- Flask (optional WhatsApp webhook utility)
+- Twilio WhatsApp Sandbox (optional utility)
 - python-dotenv
