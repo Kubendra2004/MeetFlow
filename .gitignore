@@ -1,0 +1,28 @@
+# ── Python / Environment ──
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+.env
+
+# ── Chrome Profiles (Browser Sessions) ──
+chrome_profile/
+chrome_profile_vtu/
+chrome_profile_linux/
+chrome_profile_vtu_linux/
+
+# ── Project Data (Meeting details) ──
+reports/
+meetings_db.json
+current_ngrok_url.txt
+
+# ── Application Logs ──
+logs/
+*.log
+
+# ── Windows specific ──
+*.exe
+Thumbs.db
+Desktop.ini
+MeetFlow.lnk

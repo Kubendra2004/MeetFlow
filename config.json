@@ -1,0 +1,13 @@
+{
+  "meet_link": "https://meet.google.com/your-code-here",
+  "dynamic_link_override": null,
+  "join_time_ist": "11:00",
+  "shutdown_time_ist": "12:30",
+  "max_duration_minutes": 90,
+  "vtu_hours": 7.5,
+  "vtu_skills": [
+    "Android Studio",
+    "Kotlin",
+    "UI/UX"
+  ]
+}
