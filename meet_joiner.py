@@ -463,32 +463,42 @@ def _has_preview_ui(driver) -> bool:
     return False
 
 
-def enable_captions(driver) -> bool:
+def enable_captions(driver, retries_s=30) -> bool:
     """
     Try to turn on Google Meet live captions (CC button).
     Returns True if captions were activated.
     """
-    time.sleep(2)   # let toolbar render after joining
-    try:
-        # Try aria-label variations Google uses for the CC button
-        cc_labels = [
-            "Turn on captions", "Captions", "closed captions",
-            "Turn on closed captions", "CC",
-        ]
-        for label in cc_labels:
-            btns = driver.find_elements(
-                By.XPATH,
-                f"//*[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-                f"'abcdefghijklmnopqrstuvwxyz'), '{label.lower()}')]"
-            )
-            for btn in btns:
-                if btn.is_displayed():
-                    btn.click()
-                    print("[Bot] Captions enabled ✅")
-                    return True
-    except Exception as e:
-        print(f"[Bot] Caption toggle error: {e}")
-    print("[Bot] ⚠️  Could not find captions button — transcript will be empty.")
+    print("[Bot] Attempting to enable captions (will retry if loading)...")
+    end_time = time.time() + retries_s
+    
+    # Try aria-label variations Google uses for the CC button
+    cc_labels = [
+        "Turn on captions", "Captions", "closed captions",
+        "Turn on closed captions", "CC", "Turn on captions (c)"
+    ]
+    
+    while time.time() < end_time:
+        try:
+            for label in cc_labels:
+                btns = driver.find_elements(
+                    By.XPATH,
+                    f"//*[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
+                    f"'abcdefghijklmnopqrstuvwxyz'), '{label.lower()}') and not(contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'), 'settings'))]"
+                )
+                for btn in btns:
+                    if btn.is_displayed():
+                        # Sometimes buttons are obscured, use JS click if regular fails
+                        try:
+                            btn.click()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", btn)
+                        print("[Bot] Captions enabled ✅")
+                        return True
+        except Exception:
+            pass
+        time.sleep(2)
+
+    print("[Bot] ⚠️  Could not find captions button after retries — transcript will be empty.")
     return False
 
 
@@ -751,6 +761,7 @@ def _is_waiting_for_admission(driver) -> bool:
         "you'll join when",
         "someone in the call needs to let you in",
         "waiting for someone to let you in",
+        "please wait until a meeting host brings you",
         "you cannot join this call",
     ]
     if any(m in p for m in markers):
@@ -761,15 +772,17 @@ def _is_waiting_for_admission(driver) -> bool:
             By.XPATH,
             "//*[contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'asking to join')"
             " or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'request sent')"
-            " or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'waiting for someone to let you in')]"
+            " or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'waiting for someone to let you in')"
+            " or contains(translate(normalize-space(.),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'please wait until a meeting host')]"
         )
         return any(el.is_displayed() for el in waiting_badges)
     except Exception:
         return False
 
 
-def _force_media_off_in_call(driver):
+def _force_media_off_in_call(driver, retries_s=15):
     """Best-effort in-call mute to guarantee mic/camera are not left ON after joining."""
+    print("[Bot] Ensuring mic and camera are OFF...")
     targets = [
         "microphone",
         "camera",
@@ -782,33 +795,47 @@ def _force_media_off_in_call(driver):
         if target == "camera":
             aliases.append("video")
 
-        try:
-            els = []
-            for alias in aliases:
-                xp = (
-                    "//*[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
-                    f"'{alias}') and (self::button or @role='button' or self::div)]"
-                )
-                els.extend(driver.find_elements(By.XPATH, xp))
+        end_time = time.time() + retries_s
+        turned_off = False
 
-            for el in els:
-                if not el.is_displayed():
-                    continue
-                label = ((el.get_attribute("aria-label") or "") + " " + (el.text or "")).lower()
-                if not any(a in label for a in aliases):
-                    continue
+        while time.time() < end_time and not turned_off:
+            try:
+                els = []
+                for alias in aliases:
+                    xp = (
+                        "//*[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+                        f"'{alias}') and (self::button or @role='button' or self::div)]"
+                    )
+                    els.extend(driver.find_elements(By.XPATH, xp))
 
-                # If label says "Turn off ...", device is currently ON; click once to turn it OFF.
-                if "turn off" in label or "is on" in label:
-                    try:
-                        el.click()
-                    except Exception:
-                        driver.execute_script("arguments[0].click();", el)
-                    print(f"[Join] Forced {target} OFF after join.")
-                    time.sleep(0.2)
-                    break
-        except Exception:
-            continue
+                for el in els:
+                    if not el.is_displayed():
+                        continue
+                    label = ((el.get_attribute("aria-label") or "") + " " + (el.text or "")).lower()
+                    if not any(a in label for a in aliases):
+                        continue
+
+                    # If label says "Turn off ..." or "is on", device is currently ON; click once to turn it OFF.
+                    if "turn off" in label or "is on" in label:
+                        try:
+                            el.click()
+                        except Exception:
+                            driver.execute_script("arguments[0].click();", el)
+                        print(f"[Join] Forced {target} OFF after join.")
+                        turned_off = True
+                        time.sleep(0.5) # allow state update
+                        break
+                    
+                    # If it's already "turn on" or "off", we verify it's off
+                    if "turn on" in label or "is off" in label or "off" in label.split():
+                        print(f"[Join] {target} is already OFF.")
+                        turned_off = True
+                        break
+            except Exception:
+                pass
+            
+            if not turned_off:
+                time.sleep(1.5)
 
 
 def join_with_popup_retries(driver, timeout_s: int = 120) -> bool:
@@ -1015,7 +1042,7 @@ def join_meet(meet_link: str) -> str:
         time.sleep(1)
 
         # ── Mute mic & camera + robust popup-aware join ────
-        joined = join_with_popup_retries(driver, timeout_s=180)
+        joined = join_with_popup_retries(driver, timeout_s=900)
         if not joined:
             current_url = ""
             try:
@@ -1036,7 +1063,14 @@ def join_meet(meet_link: str) -> str:
         join_start_time = get_ntp_time_ist()
         joined_at_iso = join_start_time.isoformat()
         print("[Join] Joined the meeting!")
-        _force_media_off_in_call(driver)
+        
+        # Let the UI stabilize to allow elements to transition in DOM
+        print("[Bot] Waiting a few seconds for UI to stabilize...")
+        time.sleep(5)
+        
+        # Force media off inside call (now with retries)
+        _force_media_off_in_call(driver, retries_s=20)
+        
         _log_meeting_start(join_start_time.strftime("%Y-%m-%d"), {
             "meet_link": meet_link,
             "joined_at": joined_at_iso,
@@ -1050,12 +1084,11 @@ def join_meet(meet_link: str) -> str:
         })
         
         # Dismiss any popups that appear after joining
-        time.sleep(1)
         dismiss_popups(driver)
-        time.sleep(1)
+        time.sleep(1.5)
 
-        # ── Enable live captions ───────────────────────────
-        enable_captions(driver)
+        # ── Enable live captions (with robust retries) ──────
+        enable_captions(driver, retries_s=30)
         time.sleep(2)
 
         # ── Monitor meeting + scrape captions ──────────────
