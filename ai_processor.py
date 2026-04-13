@@ -223,7 +223,8 @@ Return ONLY valid JSON:
     }}
   ],
   "context_notes": ["short context line 1", "short context line 2"],
-  "learning_signals": ["concept learned 1", "concept learned 2", "concept learned 3"]
+  "learning_signals": ["concept learned 1", "concept learned 2", "concept learned 3"],
+  "important_links": ["https://... - description of link", "Important chat announcement: ..."]
 }}
 
 Rules:
@@ -247,6 +248,7 @@ Transcript:
     extraction.setdefault("tasks", [])
     extraction.setdefault("context_notes", [])
     extraction.setdefault("learning_signals", [])
+    extraction.setdefault("important_links", [])
 
     build_prompt = f"""
 You are a professional meeting summarizer for engineering internship notes.
@@ -274,6 +276,10 @@ Return ONLY valid JSON:
     "First explicit learning point from the meeting",
     "Second explicit learning point from the meeting",
     "Third explicit learning point from the meeting"
+  ],
+  "important_links": [
+    "https://example.com - Description of shared link",
+    "Important message payload or announcement"
   ]
 }}
 
@@ -298,6 +304,7 @@ Rules:
     final_obj.setdefault("summary", "")
     final_obj["tasks"] = _normalize_task_list(final_obj.get("tasks", []))
     final_obj.setdefault("key_decisions", extraction.get("decisions", []))
+    final_obj.setdefault("important_links", extraction.get("important_links", []))
 
     los = final_obj.get("learning_outcomes", [])
     if not isinstance(los, list):

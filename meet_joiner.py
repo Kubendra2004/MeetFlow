@@ -116,6 +116,7 @@ def _update_meeting_analysis_local(
     tasks: list,
     transcript: str,
     learning_outcomes: list,
+    important_links: list,
 ):
     db = _load_db()
     items = db.get(date_str, [])
@@ -128,6 +129,7 @@ def _update_meeting_analysis_local(
             rec["tasks"] = tasks
             rec["transcript"] = transcript
             rec["learning_outcomes"] = learning_outcomes
+            rec["important_links"] = important_links
             break
     db[date_str] = items
     _save_db(db)
@@ -1080,6 +1082,7 @@ def join_meet(meet_link: str) -> str:
             "tasks": [],
             "key_decisions": [],
             "learning_outcomes": [],
+            "important_links": [],
             "transcript": "",
         })
         
@@ -1287,6 +1290,7 @@ def join_meet(meet_link: str) -> str:
         tasks=ai_results.get("tasks", []),
         transcript=transcript,
         learning_outcomes=ai_results.get("learning_outcomes", []),
+        important_links=ai_results.get("important_links", []),
     )
 
     total_mins = max(0, int((end_time - join_start_time).total_seconds() // 60))
@@ -1318,6 +1322,7 @@ def save_report(meet_link: str, join_time: datetime.datetime,
     summary           = ai_results.get("summary", "No summary available.")
     tasks             = ai_results.get("tasks", [])
     learning_outcomes = ai_results.get("learning_outcomes", [])
+    important_links   = ai_results.get("important_links", [])
     transcript    = ai_results.get("transcript", "")
     captions_text = ai_results.get("captions", "")
     chat_text     = ai_results.get("chat_log", "")
@@ -1345,6 +1350,14 @@ def save_report(meet_link: str, join_time: datetime.datetime,
             # Clean up any residual markdown the AI might have accidentally added
             clean_outcome = outcome.lstrip('*-• ').strip()
             lines.append(f"  {idx}. {clean_outcome}")
+        lines.append("")
+
+    if important_links:
+        lines += ["IMPORTANT LINKS & MESSAGES", "-" * 60]
+        for link in important_links:
+            # Clean up residual markdown lists
+            clean_link = link.lstrip('*-• ').strip()
+            lines.append(f"  • {clean_link}")
         lines.append("")
 
     if tasks:
