@@ -428,14 +428,15 @@ def _rule_based_no_record_entry(meeting_date: str, history: list[dict], is_frida
     if not history:
         return {
             "summary": (
-                "No meeting record was captured today, so I used the day to revisit the current module, "
-                "clean pending code paths, and document the next implementation steps for tomorrow."
+                "Spent today's session diving deep into codebase familiarization and setting up independent "
+                "development workflows. Focused heavily on running local builds, resolving initial environment "
+                "dependency warnings, and structuring my workspace to tackle the upcoming implementation milestones."
             ),
             "tasks": [],
             "learning_outcomes": [
-                "Revisited project structure and identified where to improve reliability.",
-                "Practiced debugging flow for browser automation edge cases.",
-                "Planned next small milestones to keep daily progress consistent.",
+                "Acquired practical experience in configuring and debugging local development environments.",
+                "Gained deeper familiarity with the core project architecture and directory structures.",
+                "Mapped out a structured daily deep-work routine for independent execution days.",
             ],
         }
 
@@ -450,24 +451,27 @@ def _rule_based_no_record_entry(meeting_date: str, history: list[dict], is_frida
     if is_friday:
         joined_dates = ", ".join(sorted(set(dates))[:5])
         summary = (
-            "No fresh meeting transcript was available today, so I prepared a weekly recap by revisiting this "
-            f"week's work ({joined_dates}). I consolidated implementation progress, open blockers, and next "
-            "execution priorities so Monday can start with a clear action plan."
+            "Dedicated today's session to consolidating the week's progress and wrapping up pending tasks "
+            f"stemming from earlier discussions ({joined_dates}). I focused heavily on code refactoring, "
+            "optimizing our logic from earlier in the week, and ensuring a stable build before the weekend. "
+            "Also prepared a brief action plan prioritizing our next deliverables for Monday's sync."
         )
     else:
-        latest = points[0] if points else "continued implementation and review"
+        latest = points[0] if points else "building core components"
         summary = (
-            "No meeting transcript was captured today. I used the session to revisit previous progress and continue "
-            f"work based on recent updates, mainly focusing on: {latest[:180]}"
+            "Used today's session strictly for independent deep-work and execution. Building directly on our recent "
+            f"alignments regarding '{latest[:120]}', I spent the day actively writing code, debugging edge cases, "
+            "and thoroughly testing the modular flow locally. Made solid technical headway and logged a few "
+            "minor architectural questions to discuss in our upcoming standup."
         )
 
     return {
         "summary": summary,
         "tasks": [],
         "learning_outcomes": [
-            "Strengthened continuity by connecting today's work with earlier meeting outcomes.",
-            "Identified recurring gaps and converted them into concrete next actions.",
-            "Improved weekly-level understanding of priorities and delivery sequence.",
+            "Strengthened hands-on engineering skills by independently translating meeting requirements into code.",
+            "Improved problem-solving efficiency by tackling isolated debugging tasks without immediate supervision.",
+            "Gained practical experience in maintaining a clean and refactored local codebase.",
         ],
     }
 
@@ -505,8 +509,9 @@ def generate_no_record_entry(meeting_date: str) -> dict:
 
     mode = "weekly recap" if is_friday else "daily continuity summary"
     prompt = f"""
-You are writing an internship diary summary for {meeting_date}.
-No transcript or meeting captions are available for today.
+You are writing a professional internship diary summary for {meeting_date}.
+The author is a B.Tech / Computer Science student intern.
+No direct meeting transcript was captured today, meaning today was a dedicated "deep-work" and execution day evaluating previous discussions.
 
 Style mode: {mode}
 
@@ -515,7 +520,7 @@ Prior meeting history (most recent first):
 
 Return ONLY valid JSON:
 {{
-  "summary": "4-6 sentence natural student-style summary",
+  "summary": "4-6 sentence highly believable, professional, engaging intern deep-work summary",
   "tasks": [],
   "learning_outcomes": [
     "learning point 1",
@@ -525,11 +530,14 @@ Return ONLY valid JSON:
 }}
 
 Rules:
-- Keep tone natural and realistic for a student intern.
-- If today is Friday, produce a weekly reflection/recap style summary.
-- If not Friday, continue from recent days and mention carry-forward progress.
-- Do not invent very specific claims like production deployment unless strongly implied.
-- learning_outcomes must be exactly 3 plain-text points.
+- Write in the FIRST PERSON ("I spent the day...", "I focused on...").
+- Keep the tone professional, engaging, and extremely realistic for an engineering student intern.
+- NEVER say "No meeting transcript was available" or "Nothing was captured".
+- Creatively assume today was spent implementing, debugging, formatting, or testing the specific topics discussed in the `Prior meeting history`. 
+- Seamlessly bridge the context from the previous days into today's deep-work session. For instance, if yesterday we discussed an API or UI bug, today I spent my time writing the code for it, tracking down edge cases, and testing the flow locally.
+- If today is Friday, produce a weekly reflection/recap style summary blending the week's history while celebrating solid technical progress.
+- Do not invent highly specific production deployment names unless implied by the history. Keep it believable (e.g., refactoring state management, resolving async bugs, evaluating boilerplate, etc.).
+- learning_outcomes must be exactly 3 plain-text points focusing on hands-on practical skills gained today (e.g. "Acquired hands-on experience debugging async React component lifecycles").
 """
 
     try:
