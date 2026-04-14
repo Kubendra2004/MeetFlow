@@ -25,7 +25,7 @@ else:
     PROFILE_DIR = os.path.abspath(os.path.join(os.getcwd(), "chrome_profile"))
     CHROMIUM_BIN = None
 
-CHROME_VER  = 145
+CHROME_VER  = 147
 
 print("=" * 54)
 print("  Google Meet Bot — One-Time Login Setup")

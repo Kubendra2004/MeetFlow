@@ -24,7 +24,7 @@ import ai_processor
 CONFIG_FILE = "config.json"
 PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile")
 IST_OFFSET  = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
-CHROME_VER  = 145   # ← update this if you upgrade Chrome
+CHROME_VER  = 147   # ← update this if you upgrade Chrome
 DB_FILE     = "meetings_db.json"
 CHROME_LAUNCH_RETRIES = 3
 MEET_PAGELOAD_TIMEOUT = 45

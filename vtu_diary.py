@@ -7,6 +7,7 @@ required fields using today's AI meeting report.
 Usage:
     python vtu_diary.py          # login + auto-fill today's diary
     python vtu_diary.py --test   # dry-run: fills form but does NOT click submit
+    python vtu_diary.py --date 2026-03-31  # fill a missed/past date
 
 Credentials in .env:
     VTU_USERNAME="yourname@gmail.com"
@@ -32,7 +33,7 @@ PORTAL_URL  = "https://vtu.internyet.in/sign-in"
 DIARY_URL   = "https://vtu.internyet.in/dashboard/student/student-diary"
 PROFILE_DIR = os.path.join(os.getcwd(), "chrome_profile_vtu")
 
-CHROME_VER  = 145
+CHROME_VER  = 147
 TIMEOUT     = 15
 
 if sys.platform.startswith("linux"):
