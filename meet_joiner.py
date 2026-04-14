@@ -1395,7 +1395,10 @@ def save_report(meet_link: str, join_time: datetime.datetime,
     print(f"[Report] Saved to {path}")
     # Also print to console so you see it immediately
     print()
-    print(report_text)
+    try:
+        print(report_text)
+    except Exception:
+        print(report_text.encode("ascii", "ignore").decode("ascii"))
 
 
 def dismiss_popups(driver):

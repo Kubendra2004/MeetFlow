@@ -168,6 +168,10 @@ def load_todays_report() -> dict:
             pass
 
     files = sorted(glob.glob(f"reports/{target_date}_*.txt"), reverse=True)
+    if "--force-regen" in sys.argv or "--regenerate" in sys.argv:
+        print("[VTU] ♻️  Force-regenerate flag detected. Ignoring existing text reports.")
+        files = []
+
     if not files:
         print(f"[VTU] ⚠️  No report found for {target_date}. Generating contextual fallback...")
         generated = ai_processor.generate_no_record_entry(target_date)
@@ -323,7 +327,7 @@ def pick_date(driver, wait, date_str: str):
         f"//td[normalize-space(.)='{day_str}' and not(@disabled)]",
         f"//div[normalize-space(.)='{day_str}' and not(@disabled) and not(contains(@class,'outside'))]",
         # Fallback: aria-label with date
-        f"//*[@aria-label[contains(.,'{dt.strftime("%-d") if hasattr(dt, "%-d") else day_str}')]]",
+        f"//*[@aria-label[contains(.,'{day_str}')]]",
     ]
     for xp in day_xpaths:
         try:
@@ -336,11 +340,12 @@ def pick_date(driver, wait, date_str: str):
         except Exception:
             pass
 
-    # Final fallback: JS click any visible element with exact day number
+    # Final fallback: JS click any visible element with exact day number or starting with it (e.g. "13\nToday")
     result = driver.execute_script(f"""
-        var candidates = document.querySelectorAll('button, td, [role="gridcell"]');
+        var candidates = document.querySelectorAll('button, td, [role="gridcell"], .rdp-day');
         for (var el of candidates) {{
-            if (el.innerText.trim() === '{day_str}' && el.offsetParent !== null
+            var txt = el.innerText.trim();
+            if ((txt === '{day_str}' || txt.indexOf('{day_str}\\n') === 0) && el.offsetParent !== null
                 && !el.disabled && !el.getAttribute('aria-disabled')) {{
                 el.click(); return el.outerHTML.slice(0,80);
             }}
@@ -478,11 +483,11 @@ def fill_diary(driver):
     # ── Step 1: Select Internship (Radix UI combobox) ────────
     print("[VTU] Selecting internship...")
     try:
-        # Click the combobox trigger
+        # Click the combobox trigger - finding visually or by input
         trigger = wait.until(EC.element_to_be_clickable(
-            (By.CSS_SELECTOR,
-             "#internship_id, button[role='combobox'][data-slot='select-trigger'],"
-             " button[role='combobox']")
+            (By.XPATH,
+             "//*[@id='internship_id'] | //button[@role='combobox'] | //*[contains(text(),'Internship')]/following::button[1]"
+            )
         ))
         trigger.click()
         print("[VTU] Dropdown opened, looking for option...")

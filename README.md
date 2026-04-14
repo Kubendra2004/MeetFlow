@@ -129,6 +129,14 @@ flowchart TD
 - Uses latest report context for summary and learning outcomes
 - Supports additional skill tagging based on detected content
 
+Example missed-date fill:
+
+```bash
+python vtu_diary.py --date 2026-03-31
+```
+
+If there is no report for that date, the script generates a context-aware fallback entry and still opens that diary date.
+
 ### Optional Utilities
 
 - Meet joiner runs local-first and does not require WhatsApp/Twilio
