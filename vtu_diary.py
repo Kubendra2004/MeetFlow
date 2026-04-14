@@ -258,12 +258,12 @@ def pick_date(driver, wait, date_str: str):
     opened = False
     # Notice we search CSS selectors first, and then XPATHs
     selectors = [
-        ("css", "input[placeholder*='Pick']"), ("css", "input[placeholder*='Date']"),
-        ("css", "input[placeholder*='date']"), ("css", "input[name*='date']"),
-        ("css", "button[aria-label*='Choose date']"),
-        ("xpath", "//*[contains(text(),'Pick a Date')]"),
-        ("xpath", "//label[contains(text(), 'Date') or contains(text(), 'date')]/following::input[1]"),
-        ("xpath", "//label[contains(text(), 'Date') or contains(text(), 'date')]/following::button[1]")
+        ("xpath", "//*[contains(text(), 'Diary Date')]/following::button[1]"),
+        ("xpath", "//*[contains(text(), 'Diary Date')]/following::input[1]"),
+        ("xpath", "//*[contains(text(), 'Diary Date')]/following::div[contains(., 'Pick')]"),
+        ("xpath", "//button[contains(., 'Pick a Date')]"),
+        ("css", "input[placeholder*='Pick']"),
+        ("css", "button[aria-label*='Choose date']")
     ]
 
     for type_, sel in selectors:
@@ -282,8 +282,16 @@ def pick_date(driver, wait, date_str: str):
 
     if not opened:
         try:
-            # Maybe the JS click can force it
-            driver.execute_script("document.querySelectorAll('input')[0].click()")
+            # Smart JS fallback
+            driver.execute_script("""
+                let els = document.querySelectorAll('button, input, div[role="button"], div');
+                for (let e of els) {
+                    let txt = (e.innerText || e.placeholder || e.value || "").toLowerCase();
+                    if (txt.includes('pick a date') && e.offsetParent !== null) {
+                        e.click(); return;
+                    }
+                }
+            """)
             time.sleep(0.5)
         except Exception as e:
             print(f"[VTU] ⚠️  Could not trigger date picker explicitly: {e}")
