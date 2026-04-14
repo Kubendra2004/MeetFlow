@@ -274,7 +274,7 @@ def pick_date(driver, wait, date_str: str):
                 inp = driver.find_element(By.XPATH, sel)
                 
             inp.click()
-            time.sleep(0.8)
+            time.sleep(1.5)
             opened = True
             break
         except Exception:
@@ -361,12 +361,13 @@ def pick_date(driver, wait, date_str: str):
 
     # Final fallback: JS click any visible element with exact day number or starting with it (e.g. "13\nToday")
     result = driver.execute_script(f"""
-        var candidates = document.querySelectorAll('button, td, [role="gridcell"], .rdp-day');
+        var candidates = document.querySelectorAll('button, td, [role="gridcell"], .rdp-day, .day, div');
         for (var el of candidates) {{
-            var txt = el.innerText.trim();
+            var txt = (el.innerText || "").trim();
+            // strictly look for exact number string, and avoid clicking a massive container div by checking children
             if ((txt === '{day_str}' || txt.indexOf('{day_str}\\n') === 0) && el.offsetParent !== null
-                && !el.disabled && !el.getAttribute('aria-disabled')) {{
-                el.click(); return el.outerHTML.slice(0,80);
+                && !el.disabled && el.getAttribute('aria-disabled') !== 'true' && el.childElementCount === 0) {{
+                el.click(); return true;
             }}
         }}
         return null;
@@ -512,6 +513,7 @@ def fill_diary(driver):
         print("[VTU] Dropdown opened, looking for option...")
         time.sleep(1.5)   # give portal time to render
 
+        clicked = False
         # Method 0: Radix UI Native Keyboard (Arrow Down + Enter)
         try:
             trigger.send_keys(Keys.ARROW_DOWN)
