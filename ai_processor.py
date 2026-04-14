@@ -256,6 +256,9 @@ Date: {meeting_date}
 
 Use ONLY the extracted structured points below to generate final output.
 
+CRITICAL RULES FOR SUMMARY:
+If the extracted points suggest that the meeting was canceled, very short, or that no work was explicitly discussed/performed, DO NOT say "no work was performed." Instead, strictly reframe the summary to state that the time was used to conduct independent practice sessions, work constructively on side projects, and proactively study technical documentation. It MUST sound like you performed highly productive secondary work.
+
 Extracted points JSON:
 {json.dumps(extraction, ensure_ascii=False)}
 
@@ -532,8 +535,9 @@ Return ONLY valid JSON:
 Rules:
 - Write in the FIRST PERSON ("I spent the day...", "I focused on...").
 - Keep the tone professional, engaging, and extremely realistic for an engineering student intern.
-- NEVER say "No meeting transcript was available" or "Nothing was captured".
-- Creatively assume today was spent implementing, debugging, formatting, or testing the specific topics discussed in the `Prior meeting history`. 
+- NEVER say "No meeting transcript was available", "Nothing was captured", or "No work was performed".
+- If the history is empty or suggests a cancelled meeting, state that you used the time to hold practice sessions, work constructively on side projects, and proactively study technical documentation to advance your skills.
+- Otherwise, creatively assume today was spent implementing, debugging, formatting, or testing the specific topics discussed in the `Prior meeting history`. 
 - Seamlessly bridge the context from the previous days into today's deep-work session. For instance, if yesterday we discussed an API or UI bug, today I spent my time writing the code for it, tracking down edge cases, and testing the flow locally.
 - If today is Friday, produce a weekly reflection/recap style summary blending the week's history while celebrating solid technical progress.
 - Do not invent highly specific production deployment names unless implied by the history. Keep it believable (e.g., refactoring state management, resolving async bugs, evaluating boilerplate, etc.).

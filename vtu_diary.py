@@ -255,11 +255,23 @@ def pick_date(driver, wait, date_str: str):
 
     # ── 1. Open the calendar ────────────────────────────────
     opened = False
-    # Try clicking the input field first
-    for sel in ["input[placeholder*='Pick']", "input[placeholder*='Date']",
-                "input[placeholder*='date']"]:
+    # Notice we search CSS selectors first, and then XPATHs
+    selectors = [
+        ("css", "input[placeholder*='Pick']"), ("css", "input[placeholder*='Date']"),
+        ("css", "input[placeholder*='date']"), ("css", "input[name*='date']"),
+        ("css", "button[aria-label*='Choose date']"),
+        ("xpath", "//*[contains(text(),'Pick a Date')]"),
+        ("xpath", "//label[contains(text(), 'Date') or contains(text(), 'date')]/following::input[1]"),
+        ("xpath", "//label[contains(text(), 'Date') or contains(text(), 'date')]/following::button[1]")
+    ]
+
+    for type_, sel in selectors:
         try:
-            inp = driver.find_element(By.CSS_SELECTOR, sel)
+            if type_ == "css":
+                inp = driver.find_element(By.CSS_SELECTOR, sel)
+            else:
+                inp = driver.find_element(By.XPATH, sel)
+                
             inp.click()
             time.sleep(0.8)
             opened = True
@@ -268,15 +280,13 @@ def pick_date(driver, wait, date_str: str):
             pass
 
     if not opened:
-        # Fallback: click any element that says 'Pick a Date'
         try:
-            driver.find_element(
-                By.XPATH, "//*[contains(text(),'Pick a Date')]"
-            ).click()
-            time.sleep(0.8)
+            # Maybe the JS click can force it
+            driver.execute_script("document.querySelectorAll('input')[0].click()")
+            time.sleep(0.5)
         except Exception as e:
-            print(f"[VTU] ⚠️  Could not open date picker: {e}")
-            return
+            print(f"[VTU] ⚠️  Could not trigger date picker explicitly: {e}")
+            # Do NOT return here. The calendar might already be open/visible on the page!
 
     # ── 2. Navigate to correct month (max 12 clicks) ────────
     for _ in range(12):
