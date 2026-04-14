@@ -23,6 +23,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 from dotenv import load_dotenv
 import ai_processor
 
@@ -503,17 +504,25 @@ def fill_diary(driver):
         print("[VTU] Dropdown opened, looking for option...")
         time.sleep(1.5)   # give portal time to render
 
-        # Try 4 methods to click the first/only option
-        clicked = False
-
-        # Method 1: CSS role=option
+        # Method 0: Radix UI Native Keyboard (Arrow Down + Enter)
         try:
-            opt = driver.find_element(By.CSS_SELECTOR, "div[role='option']")
-            driver.execute_script("arguments[0].click();", opt)
+            trigger.send_keys(Keys.ARROW_DOWN)
+            time.sleep(0.3)
+            trigger.send_keys(Keys.ENTER)
             clicked = True
-            print("[VTU] ✅ Internship selected (method 1 - CSS).")
+            print("[VTU] ✅ Internship selected via Keyboard (Arrow Down + Enter).")
         except Exception:
             pass
+
+        # Method 1: CSS role=option
+        if not clicked:
+            try:
+                opt = driver.find_element(By.CSS_SELECTOR, "div[role='option']")
+                driver.execute_script("arguments[0].click();", opt)
+                clicked = True
+                print("[VTU] ✅ Internship selected (method 1 - CSS).")
+            except Exception:
+                pass
 
         # Method 2: XPath by partial text
         if not clicked:
@@ -546,8 +555,10 @@ def fill_diary(driver):
                 for (var o of opts) {
                     if (o.offsetParent !== null) { 
                         var txt = o.innerText.toLowerCase();
-                        if (txt.includes('out') || txt.includes('log') || txt.includes('profile') || txt.includes('setting')) continue;
-                        o.click(); return o.innerText; 
+                        if (txt.includes('out') || txt.includes('log') || txt.includes('profile') || txt.includes('setting') || txt.includes('home') || txt.includes('dashboard')) continue;
+                        if (txt.includes('intern') || txt.includes('android') || txt.includes('develop')) {
+                            o.click(); return o.innerText; 
+                        }
                     }
                 }
                 return null;
