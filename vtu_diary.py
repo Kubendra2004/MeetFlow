@@ -496,7 +496,7 @@ def fill_diary(driver):
         # Click the combobox trigger - finding visually or by input
         trigger = wait.until(EC.element_to_be_clickable(
             (By.XPATH,
-             "//*[@id='internship_id'] | //button[@role='combobox'] | //*[contains(text(),'Internship')]/following::button[1]"
+             "//*[@id='internship_id'] | //button[@role='combobox'] | //*[contains(text(),'Internship')]/following::button[1] | //*[contains(text(),'Choose internship')]"
             )
         ))
         trigger.click()
@@ -542,9 +542,13 @@ def fill_diary(driver):
         # Method 4: JS - find first visible dropdown item and click it
         if not clicked:
             result = driver.execute_script("""
-                var opts = document.querySelectorAll('[role="option"], [role="menuitem"], li');
+                var opts = document.querySelectorAll('[role="option"], [role="menuitem"], li, .dropdown-item');
                 for (var o of opts) {
-                    if (o.offsetParent !== null) { o.click(); return o.innerText; }
+                    if (o.offsetParent !== null) { 
+                        var txt = o.innerText.toLowerCase();
+                        if (txt.includes('out') || txt.includes('log') || txt.includes('profile') || txt.includes('setting')) continue;
+                        o.click(); return o.innerText; 
+                    }
                 }
                 return null;
             """)
