@@ -505,7 +505,7 @@ def fill_diary(driver):
         # Click the combobox trigger - finding visually or by input
         trigger = wait.until(EC.element_to_be_clickable(
             (By.XPATH,
-             "//*[@id='internship_id'] | //button[@role='combobox'] | //*[contains(text(),'Internship')]/following::button[1] | //*[contains(text(),'Choose internship')]"
+             "//label[contains(text(),'Select Internship')]/following::*[self::button or @role='combobox' or contains(@class,'control')][1] | //*[text()='Choose internship'] | //*[contains(text(),'Choose internship')]"
             )
         ))
         trigger.click()
@@ -522,44 +522,10 @@ def fill_diary(driver):
         except Exception:
             pass
 
-        # Method 1: CSS role=option
-        if not clicked:
-            try:
-                opt = driver.find_element(By.CSS_SELECTOR, "div[role='option']")
-                driver.execute_script("arguments[0].click();", opt)
-                clicked = True
-                print("[VTU] ✅ Internship selected (method 1 - CSS).")
-            except Exception:
-                pass
-
-        # Method 2: XPath by partial text
-        if not clicked:
-            try:
-                opt = driver.find_element(
-                    By.XPATH, "//div[contains(text(),'Android') or contains(text(),'internship') or contains(text(),'Internship')]"
-                )
-                driver.execute_script("arguments[0].click();", opt)
-                clicked = True
-                print("[VTU] ✅ Internship selected (method 2 - text).")
-            except Exception:
-                pass
-
-        # Method 3: XPath generic option/listitem
-        if not clicked:
-            try:
-                opt = driver.find_element(
-                    By.XPATH, "//*[@role='option' or @role='menuitem'][1]"
-                )
-                driver.execute_script("arguments[0].click();", opt)
-                clicked = True
-                print("[VTU] ✅ Internship selected (method 3 - role).")
-            except Exception:
-                pass
-
-        # Method 4: JS - find first visible dropdown item and click it
+        # Method 1: JS - strictly find text-matching visible dropdown item and click it
         if not clicked:
             result = driver.execute_script("""
-                var opts = document.querySelectorAll('[role="option"], [role="menuitem"], li, .dropdown-item');
+                var opts = document.querySelectorAll('[role="option"], [role="menuitem"], li, .dropdown-item, .select-item');
                 for (var o of opts) {
                     if (o.offsetParent !== null) { 
                         var txt = o.innerText.toLowerCase();
