@@ -190,20 +190,40 @@ def load_todays_report() -> dict:
         files = []
 
     if not files:
-        print(f"[VTU] ⚠️  No report found for {target_date}. Generating contextual fallback...")
-        generated = ai_processor.generate_no_record_entry(target_date)
+        print(f"[VTU] ⚠️  No report found for {target_date}. Detecting entry type...")
+        
+        # Load project config if available
+        cfg = load_cfg()
+        project_cfg = cfg.get("project")
+        is_project_day = project_cfg is not None and "--no-project" not in sys.argv
+        
+        if is_project_day:
+            print(f"[VTU] 📁 Project work detected. Generating {project_cfg.get('name', 'Project')} summary...")
+            # Load history for context
+            history = ai_processor._recent_history(target_date, lookback_days=14)
+            generated = ai_processor._generate_project_work_entry(target_date, project_cfg, history)
+            entry_type = "PROJECT"
+        else:
+            print(f"[VTU] 📅 Meeting entry mode (no project config). Generating continuity summary...")
+            generated = ai_processor.generate_no_record_entry(target_date)
+            entry_type = "SESSION"
+        
         learnings = "\n".join(generated.get("learning_outcomes", [])[:3]).strip()
         summary = (generated.get("summary") or "").strip()
 
         text_for_skill_scan = f"{summary}\n{learnings}"
         extra_skills = []
-        if re.search(r"\b(google|cloud|gcp)\b", text_for_skill_scan, re.IGNORECASE):
-            extra_skills.append("Google Cloud")
+        if re.search(r"\b(google|gemini|ai|map|water|quality)\b", text_for_skill_scan, re.IGNORECASE):
+            extra_skills.append("AI Integration")
+        if re.search(r"\b(compose|ui|android|kotlin)\b", text_for_skill_scan, re.IGNORECASE):
+            extra_skills.append("Android Development")
 
+        print(f"[VTU] Entry type: {entry_type}")
         return {
             "date": target_date,
-            "summary": summary or "Revisited previous progress and planned the next implementation tasks.",
-            "learnings": learnings or "Reviewed previous work and identified next steps.",
+            "entry_type": entry_type,
+            "summary": summary or "Worked on internship project tasks and objectives.",
+            "learnings": learnings or "Gained practical experience in current implementation phase.",
             "hours": _parse_hours(""),
             "extra_skills": extra_skills,
         }

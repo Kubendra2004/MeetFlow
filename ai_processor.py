@@ -479,6 +479,51 @@ def _rule_based_no_record_entry(meeting_date: str, history: list[dict], is_frida
     }
 
 
+def _generate_project_work_entry(project_date: str, project_cfg: dict, history: list[dict]) -> dict:
+    """
+    Generate a project-work diary entry for days with no meeting session.
+    Focuses on Sahyadri-Siri development (Android/Kotlin/Gemini integration).
+    """
+    project_name = project_cfg.get("name", "Project")
+    domains = project_cfg.get("domains", [])
+    tech_stack = project_cfg.get("tech_stack", [])
+    
+    # Pick a domain focus for today
+    domain_focus = domains[len(history) % len(domains)] if domains else "Feature Development"
+    tech_focus = tech_stack[len(history) % len(tech_stack)] if tech_stack else "Kotlin"
+    
+    try:
+        target = datetime.datetime.strptime(project_date, "%Y-%m-%d").date()
+        is_friday = target.weekday() == 4
+    except Exception:
+        is_friday = False
+    
+    if is_friday:
+        summary = (
+            f"Dedicated today's session to consolidating this week's {project_name} progress and stabilizing "
+            f"the codebase. Focused on refactoring previous implementations, running comprehensive local tests, "
+            f"and validating the UI/data flow across multiple screen transitions. Prepared a brief summary of "
+            f"blockers and next-week priorities in the Sahyadri-Siri development roadmap."
+        )
+    else:
+        summary = (
+            f"Deep-dived into {project_name} development today, concentrating on {domain_focus.lower()} "
+            f"using {tech_focus}. Spent the day writing modular components, debugging layout rendering edge cases, "
+            f"and iterating on the Glassmorphism UI patterns. Made tangible progress on integrating real-time data "
+            f"streams and validated local build integrity across multiple device profiles."
+        )
+    
+    return {
+        "summary": summary,
+        "tasks": [],
+        "learning_outcomes": [
+            f"Advanced proficiency in {tech_focus} for building production-grade Android components.",
+            f"Deepened understanding of {domain_focus.lower()} patterns and best practices within {project_name}.",
+            "Refined hands-on experience in debugging and optimizing real-time data visualization flows.",
+        ],
+    }
+
+
 def generate_no_record_entry(meeting_date: str) -> dict:
     """
     Build an enhanced summary when no transcript/report is available.

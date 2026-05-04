@@ -5,5 +5,11 @@
   "shutdown_time_ist": "15:30",
   "max_duration_minutes": 90,
   "vtu_hours": 1.0,
-  "vtu_skills": ["Android Studio", "Kotlin"]
+  "vtu_skills": ["Android Studio", "Kotlin"],
+  "project": {
+    "name": "Sahyadri-Siri",
+    "description": "Next-Generation Water Quality Monitoring Android Application",
+    "tech_stack": ["Kotlin", "Jetpack Compose", "Google Gemini AI", "Room Database", "Dagger Hilt"],
+    "domains": ["UI/UX Development", "AI Integration", "Geospatial Mapping", "Data Visualization", "Android Architecture"]
+  }
 }

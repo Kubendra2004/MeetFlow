@@ -128,14 +128,51 @@ flowchart TD
 - Standalone test mode and date override
 - Uses latest report context for summary and learning outcomes
 - Supports additional skill tagging based on detected content
+- **Dual-mode entry detection**: 
+  - **Session Mode** (Meeting Day): Analyzes captured captions and generates meeting-based summaries
+  - **Project Mode** (No Session): When no meeting report exists, automatically generates project-focused summaries (e.g., Sahyadri-Siri Android development)
 
-Example missed-date fill:
+#### Project Configuration
+Define your project details in `config.json`:
+```json
+{
+  "project": {
+    "name": "Sahyadri-Siri",
+    "description": "Water Quality Monitoring Android App",
+    "tech_stack": ["Kotlin", "Jetpack Compose", "Google Gemini AI"],
+    "domains": ["UI/UX Development", "AI Integration", "Data Visualization"]
+  }
+}
+```
 
+When a project is configured:
+- **No meeting report found** → Generates project-specific diary entries rotating through domain focuses
+- **Friday project days** → Generates weekly progress recap focused on code consolidation and refactoring
+- **Weekday project days** → Generates feature-focused summaries highlighting technical implementation work
+
+#### Usage Examples
+
+**Fill today's diary (auto-detect session vs project):**
+```bash
+python vtu_diary.py
+```
+
+**Fill a missed/past date (auto-detect entry type):**
 ```bash
 python vtu_diary.py --date 2026-03-31
 ```
 
-If there is no report for that date, the script generates a context-aware fallback entry and still opens that diary date.
+**Force meeting-entry mode (skip project detection):**
+```bash
+python vtu_diary.py --no-project
+```
+
+**Test mode without submission:**
+```bash
+python vtu_diary.py --test
+```
+
+If there is no report for that date, the script intelligently detects whether it's a project work day (with project config) or a meeting absence and generates contextually appropriate content.
 
 ### Optional Utilities
 
