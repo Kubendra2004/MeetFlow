@@ -20,7 +20,7 @@ Skills config in config.json:
 import os, sys, time, json, glob, re, traceback, datetime, random
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
@@ -105,12 +105,26 @@ def dismiss_popups(driver):
 def login(driver) -> bool:
     print("[VTU] Opening sign-in page...")
     driver.get(PORTAL_URL)
-    time.sleep(3)
+    # Wait up to TIMEOUT seconds to detect already-logged-in redirect
+    start = time.time()
+    while time.time() - start < TIMEOUT:
+        cur = driver.current_url
+        if "student-diary" in cur or "dashboard" in cur or ("sign-in" not in cur and "login" not in cur):
+            print(f"[VTU] ✅ Already logged in! URL: {cur}")
+            driver.get(DIARY_URL)
+            time.sleep(2)
+            dismiss_popups(driver)
+            return True
+        time.sleep(0.5)
+
     dismiss_popups(driver)
 
     # ── Already logged in? Skip form entirely ──────────────
     if "sign-in" not in driver.current_url and "login" not in driver.current_url:
         print(f"[VTU] ✅ Already logged in! URL: {driver.current_url}")
+        driver.get(DIARY_URL)
+        time.sleep(2)
+        dismiss_popups(driver)
         return True
 
     if not VTU_USERNAME or not VTU_PASSWORD:
@@ -146,6 +160,8 @@ def login(driver) -> bool:
             print("[VTU] ❌  Still on sign-in page — check credentials.")
             return False
 
+        driver.get(DIARY_URL)
+        time.sleep(2)
         dismiss_popups(driver)
         print(f"[VTU] ✅ Logged in! URL: {driver.current_url}")
         return True
@@ -249,10 +265,11 @@ def pick_date(driver, wait, date_str: str):
     correct month if needed, then clicks the correct day number.
     date_str format: YYYY-MM-DD
     """
-    dt          = datetime.datetime.strptime(date_str, "%Y-%m-%d")
-    target_day  = dt.day                    # e.g. 24
-    target_mon  = dt.strftime("%b")         # e.g. "Mar"
-    target_year = dt.year                   # e.g. 2026
+    dt              = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+    target_day      = dt.day                    # e.g. 24
+    target_mon      = dt.strftime("%b")         # e.g. "Mar"
+    target_mon_full = dt.strftime("%B")        # e.g. "March"
+    target_year     = dt.year                   # e.g. 2026
 
     # ── 1. Open the calendar ────────────────────────────────
     opened = False
@@ -297,56 +314,100 @@ def pick_date(driver, wait, date_str: str):
             print(f"[VTU] ⚠️  Could not trigger date picker explicitly: {e}")
             # Do NOT return here. The calendar might already be open/visible on the page!
 
-    # ── 2. Navigate to correct month (max 12 clicks) ────────
-    for _ in range(12):
-        try:
-            mon_text  = driver.find_element(
-                By.XPATH, "//button[contains(@class,'month')] | //select[@class*='month']"
-                          " | //div[contains(@class,'month-year')] | //span[contains(@class,'month')]"
-            ).text
-            year_text = driver.execute_script("return document.title;")  # fallback
-        except Exception:
-            mon_text = ""
+    # ── 2. Navigate to correct month (prefer dropdowns) ─────
+    try:
+        cal_root = driver.find_element(
+            By.XPATH,
+            "//*[contains(@class,'calendar') or contains(@class,'Calendar') "
+            "or contains(@class,'DayPicker') or contains(@class,'rdp')]"
+        )
+    except Exception:
+        cal_root = driver
 
-        # Simpler: read all visible text in the calendar header area
+    month_set = False
+    try:
+        month_sel = cal_root.find_element(
+            By.XPATH,
+            ".//select[contains(@aria-label,'month') or contains(@class,'month')]"
+        )
+        year_sel = cal_root.find_element(
+            By.XPATH,
+            ".//select[contains(@aria-label,'year') or contains(@class,'year')]"
+        )
+        month_select = Select(month_sel)
+        year_select = Select(year_sel)
         try:
-            header = driver.find_element(
-                By.XPATH,
-                "//*[contains(@class,'calendar') or contains(@class,'Calendar') "
-                "or contains(@class,'DayPicker') or contains(@class,'rdp')]"
-            ).text
+            month_select.select_by_visible_text(target_mon)
         except Exception:
-            header = driver.execute_script(
-                "return document.body.innerText.slice(0,500);"
-            ) or ""
+            month_select.select_by_visible_text(target_mon_full)
+        year_select.select_by_visible_text(str(target_year))
+        month_set = True
+        time.sleep(0.5)
+    except Exception:
+        month_set = False
 
-        # Check if target month+year visible
-        if target_mon in header and str(target_year) in header:
-            break
+    if not month_set:
+        months_short = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        months_long = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+        target_mon_idx = months_short.index(target_mon)
 
-        # Click next month arrow
-        try:
-            nxt = driver.find_element(
-                By.XPATH,
-                "//button[@aria-label='Go to next month'] "
-                "| //button[contains(@aria-label,'next')] "
-                "| //button[.='\u203a'] | //button[.='>'] "
-                "| //*[@class='rdp-nav_button rdp-nav_button_next']"
-            )
-            nxt.click()
-            time.sleep(0.5)
-        except Exception:
-            break
+        for _ in range(12):
+            try:
+                header = cal_root.text
+            except Exception:
+                header = driver.execute_script("return document.body.innerText.slice(0,500);") or ""
+
+            current_mon_idx = -1
+            for i, (short, long) in enumerate(zip(months_short, months_long)):
+                if short in header or long in header:
+                    current_mon_idx = i
+                    break
+
+            current_year = None
+            m = re.search(r"\b(20\d{2})\b", header)
+            if m:
+                current_year = int(m.group(1))
+
+            if current_mon_idx == target_mon_idx and current_year == target_year:
+                break
+
+            try:
+                if current_year is None:
+                    direction = 1
+                else:
+                    delta = (target_year - current_year) * 12 + (target_mon_idx - current_mon_idx)
+                    direction = 1 if delta >= 0 else -1
+
+                if direction > 0:
+                    btn = cal_root.find_element(
+                        By.XPATH,
+                        ".//button[@aria-label='Go to next month'] "
+                        "| .//button[contains(@aria-label,'next')] "
+                        "| .//button[.='\u203a'] | .//button[.='>']"
+                    )
+                else:
+                    btn = cal_root.find_element(
+                        By.XPATH,
+                        ".//button[@aria-label='Go to previous month'] "
+                        "| .//button[contains(@aria-label,'previous')] "
+                        "| .//button[contains(@aria-label,'prev')] "
+                        "| .//button[.='\u2039'] | .//button[.='<']"
+                    )
+                btn.click()
+                time.sleep(0.5)
+            except Exception:
+                break
 
     # ── 3. Click the target day number ──────────────────────
     day_str = str(target_day)
     day_xpaths = [
-        # Exact text match, not disabled/greyed
-        f"//button[normalize-space(.)='{day_str}' and not(@disabled)]",
-        f"//td[normalize-space(.)='{day_str}' and not(@disabled)]",
-        f"//div[normalize-space(.)='{day_str}' and not(@disabled) and not(contains(@class,'outside'))]",
-        # Fallback: aria-label with date
-        f"//*[@aria-label[contains(.,'{day_str}')]]",
+        # Prefer aria-label month/year match to avoid dimmed outside days
+        f"//button[normalize-space(.)='{day_str}' and contains(@aria-label,'{target_mon_full}') and contains(@aria-label,'{target_year}') and not(@disabled) and @aria-disabled!='true']",
+        f"//button[normalize-space(.)='{day_str}' and contains(@aria-label,'{target_mon}') and contains(@aria-label,'{target_year}') and not(@disabled) and @aria-disabled!='true']",
+        # Fallback: exclude common outside-month class names
+        f"//button[normalize-space(.)='{day_str}' and not(@disabled) and @aria-disabled!='true' and not(contains(@class,'outside')) and not(contains(@class,'outside-month')) and not(contains(@class,'rdp-day_outside')) and not(contains(@class,'prev')) and not(contains(@class,'next'))]",
+        f"//td[normalize-space(.)='{day_str}' and not(@disabled) and @aria-disabled!='true' and not(contains(@class,'outside')) and not(contains(@class,'outside-month')) and not(contains(@class,'rdp-day_outside'))]",
+        f"//div[normalize-space(.)='{day_str}' and not(@disabled) and @aria-disabled!='true' and not(contains(@class,'outside')) and not(contains(@class,'outside-month')) and not(contains(@class,'rdp-day_outside'))]",
     ]
     for xp in day_xpaths:
         try:
@@ -362,11 +423,19 @@ def pick_date(driver, wait, date_str: str):
     # Final fallback: JS click any visible element with exact day number or starting with it (e.g. "13\nToday")
     result = driver.execute_script(f"""
         var candidates = document.querySelectorAll('button, td, [role="gridcell"], .rdp-day, .day, div');
+        var tmonFull = '{target_mon_full}'.toLowerCase();
+        var tmon = '{target_mon}'.toLowerCase();
+        var tyear = '{target_year}'.toLowerCase();
         for (var el of candidates) {{
             var txt = (el.innerText || "").trim();
-            // strictly look for exact number string, and avoid clicking a massive container div by checking children
+            var cls = (el.className || "");
+            var label = (el.getAttribute('aria-label') || "").toLowerCase();
+            var outside = cls.includes('outside') || cls.includes('outside-month') || cls.includes('rdp-day_outside') || cls.includes('prev') || cls.includes('next');
+            var disabled = el.disabled || el.getAttribute('aria-disabled') === 'true';
+            var labelMatch = label.includes(tmonFull) || label.includes(tmon);
+            var yearMatch = label.includes(tyear);
             if ((txt === '{day_str}' || txt.indexOf('{day_str}\\n') === 0) && el.offsetParent !== null
-                && !el.disabled && el.getAttribute('aria-disabled') !== 'true' && el.childElementCount === 0) {{
+                && !disabled && !outside && labelMatch && yearMatch && el.childElementCount === 0) {{
                 el.click(); return true;
             }}
         }}
